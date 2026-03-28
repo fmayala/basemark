@@ -39,10 +39,12 @@ export const createShareSchema = z.object({
   expiresAt: z.string().optional(),
 });
 
+export const normalizedEmailSchema = z.preprocess(
+  (value) => (typeof value === "string" ? normalizeEmail(value) : value),
+  z.string().email("Valid email is required"),
+);
+
 export const createPermissionSchema = z.object({
-  email: z.preprocess(
-    (value) => (typeof value === "string" ? normalizeEmail(value) : value),
-    z.string().email("Valid email is required"),
-  ),
+  email: normalizedEmailSchema,
   role: z.enum(["viewer", "editor"]).optional(),
 });

@@ -8,7 +8,7 @@ vi.mock("@/lib/db/index", () => ({
   queryStatement: queryStatementMock,
 }));
 
-const { syncDocumentFTS } = await import("@/lib/db/fts");
+const { syncDocumentFTS, rebuildFTSFromDocuments } = await import("@/lib/db/fts");
 
 describe("fts synchronization", () => {
   beforeEach(() => {
@@ -91,6 +91,88 @@ describe("fts synchronization", () => {
     );
 
     expect(insertCall?.[1]).toEqual(["doc-1", "Latest Persisted", "Canonical body"]);
+  });
+
+  it("supports full reindex from canonical documents table", async () => {
+    queryStatementMock.mockResolvedValueOnce([
+      {
+        id: "doc-1",
+        title: "A",
+        content: JSON.stringify({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Plain" }],
+            },
+          ],
+        }),
+      },
+    ]);
+
+    await rebuildFTSFromDocuments();
+
+    expect(queryStatementMock).toHaveBeenCalledWith(
+      expect.stringContaining("SELECT id, title, content FROM documents"),
+    );
+
+    const insertCall = runStatementMock.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO documents_fts"),
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall?.[1]).toEqual(["doc-1", "A", "Plain"]);
+  });
+
+  it("serializes rebuild against per-document sync operations", async () => {
+    queryStatementMock
+      .mockResolvedValueOnce([
+        {
+          id: "doc-1",
+          title: "A",
+          content: JSON.stringify({
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "Rebuild body" }],
+              },
+            ],
+          }),
+        },
+      ])
+      .mockResolvedValueOnce([{ title: "Doc 2", content: "Sync body" }]);
+
+    let releaseRebuildInsert = () => {};
+    const rebuildInsertGate = new Promise<void>((resolve) => {
+      releaseRebuildInsert = () => resolve();
+    });
+
+    let rebuildInsertBlocked = false;
+    runStatementMock.mockImplementation((sql: string, params?: unknown[]) => {
+      if (
+        sql.includes("INSERT INTO documents_fts") &&
+        Array.isArray(params) &&
+        params[0] === "doc-1" &&
+        !rebuildInsertBlocked
+      ) {
+        rebuildInsertBlocked = true;
+        return rebuildInsertGate;
+      }
+      return Promise.resolve();
+    });
+
+    const rebuild = rebuildFTSFromDocuments();
+    await flushMicrotasks();
+
+    const sync = syncDocumentFTS("doc-2");
+    await flushMicrotasks();
+
+    expect(queryStatementMock).toHaveBeenCalledTimes(1);
+
+    releaseRebuildInsert();
+    await Promise.all([rebuild, sync]);
+
+    expect(queryStatementMock).toHaveBeenCalledTimes(2);
   });
 });
 

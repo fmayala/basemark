@@ -2,6 +2,7 @@ import { runStatement, queryStatement } from "./index";
 import { extractText } from "@/lib/text";
 
 const docOperationQueue = new Map<string, Promise<void>>();
+let globalOperationQueue: Promise<void> = Promise.resolve();
 
 async function ensureFTS() {
   await runStatement(`
@@ -15,25 +16,44 @@ async function ensureFTS() {
 }
 
 export async function syncDocumentFTS(docId: string, _title?: string, _plainText?: string) {
-  await runSerializedByDoc(docId, async () => {
-    await ensureFTS();
+  await runSerializedGlobally(() =>
+    runSerializedByDoc(docId, async () => {
+      await ensureFTS();
 
-    const snapshot = await readCurrentDocumentSnapshot(docId);
+      const snapshot = await readCurrentDocumentSnapshot(docId);
 
-    await runStatement("DELETE FROM documents_fts WHERE doc_id = ?", [docId]);
-    if (!snapshot) return;
+      await runStatement("DELETE FROM documents_fts WHERE doc_id = ?", [docId]);
+      if (!snapshot) return;
 
-    await runStatement(
-      "INSERT INTO documents_fts (doc_id, title, content_text) VALUES (?, ?, ?)",
-      [docId, snapshot.title, snapshot.plainText],
-    );
-  });
+      await runStatement(
+        "INSERT INTO documents_fts (doc_id, title, content_text) VALUES (?, ?, ?)",
+        [docId, snapshot.title, snapshot.plainText],
+      );
+    }),
+  );
 }
 
 export async function deleteDocumentFTS(docId: string) {
-  await runSerializedByDoc(docId, async () => {
+  await runSerializedGlobally(() =>
+    runSerializedByDoc(docId, async () => {
+      await ensureFTS();
+      await runStatement("DELETE FROM documents_fts WHERE doc_id = ?", [docId]);
+    }),
+  );
+}
+
+export async function rebuildFTSFromDocuments(): Promise<void> {
+  await runSerializedGlobally(async () => {
     await ensureFTS();
-    await runStatement("DELETE FROM documents_fts WHERE doc_id = ?", [docId]);
+    await runStatement("DELETE FROM documents_fts");
+    const rows = await queryStatement("SELECT id, title, content FROM documents");
+
+    for (const row of rows as Array<{ id: string; title: string; content: string }>) {
+      await runStatement(
+        "INSERT INTO documents_fts (doc_id, title, content_text) VALUES (?, ?, ?)",
+        [row.id, row.title || "Untitled", parseDocumentContentToPlainText(row.content)],
+      );
+    }
   });
 }
 
@@ -68,6 +88,15 @@ function runSerializedByDoc(docId: string, operation: () => Promise<void>): Prom
   });
 }
 
+function runSerializedGlobally<T>(operation: () => Promise<T>): Promise<T> {
+  const next = globalOperationQueue.catch(() => undefined).then(operation);
+  globalOperationQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
 async function readCurrentDocumentSnapshot(
   docId: string,
 ): Promise<{ title: string; plainText: string } | null> {
@@ -80,14 +109,17 @@ async function readCurrentDocumentSnapshot(
   if (!row) return null;
 
   const title = typeof row.title === "string" && row.title.length > 0 ? row.title : "Untitled";
-  const content = typeof row.content === "string" ? row.content : "";
-
-  let plainText = "";
-  try {
-    plainText = extractText(JSON.parse(content || "{}"));
-  } catch {
-    plainText = content;
-  }
+  const plainText = parseDocumentContentToPlainText(
+    typeof row.content === "string" ? row.content : "",
+  );
 
   return { title, plainText };
+}
+
+function parseDocumentContentToPlainText(content: string): string {
+  try {
+    return extractText(JSON.parse(content || "{}"));
+  } catch {
+    return content;
+  }
 }

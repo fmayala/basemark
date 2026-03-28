@@ -7,6 +7,13 @@ export const DEFAULT_TOKEN_SCOPES = [
   "docs:write",
 ] as const;
 
+export const ALLOWED_TOKEN_SCOPES = [
+  ...DEFAULT_TOKEN_SCOPES,
+  "tokens:manage",
+] as const;
+
+const ALLOWED_TOKEN_SCOPE_SET = new Set<string>(ALLOWED_TOKEN_SCOPES);
+
 export function generateApiToken(): string {
   return `bm_${nanoid(32)}`;
 }
@@ -32,4 +39,20 @@ export function parseTokenScopes(value: string | null | undefined): Set<string> 
 
 export function tokenHasScopes(scopeSet: Set<string>, required: string[]): boolean {
   return required.every((scope) => scopeSet.has(scope));
+}
+
+export function normalizeTokenScopes(value: string[] | null | undefined): string[] {
+  const requested = (value ?? [])
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  const effective = requested.length > 0 ? requested : [...DEFAULT_TOKEN_SCOPES];
+  const deduped = [...new Set(effective)];
+
+  for (const scope of deduped) {
+    if (!ALLOWED_TOKEN_SCOPE_SET.has(scope)) {
+      throw new Error(`Invalid token scope: ${scope}`);
+    }
+  }
+
+  return deduped;
 }

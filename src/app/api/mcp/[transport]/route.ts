@@ -6,19 +6,33 @@ import { eq, desc, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { searchDocuments } from "@/lib/db/fts";
 import { syncDocumentFTS, deleteDocumentFTS } from "@/lib/db/fts";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { hashApiToken, parseTokenScopes, tokenHasScopes } from "@/lib/token-security";
+import {
+  mcpCreateCollectionInputSchema,
+  mcpCreateDocInputSchema,
+  mcpShareInputSchema,
+  mcpUpdateDocInputSchema,
+} from "@/lib/mcp-constraints";
 
 async function validateBearerToken(req: Request): Promise<boolean> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer bm_")) return false;
   const token = authHeader.slice(7); // "Bearer " is 7 chars
   await dbReady;
+  const tokenHash = hashApiToken(token);
   const row = await db
     .select()
     .from(apiTokens)
-    .where(eq(apiTokens.token, token))
+    .where(eq(apiTokens.tokenHash, tokenHash))
     .get();
   if (!row) return false;
+  if (row.revokedAt) return false;
+  if (row.expiresAt && row.expiresAt < Math.floor(Date.now() / 1000)) return false;
+
+  const scopes = parseTokenScopes(row.scope);
+  if (!tokenHasScopes(scopes, ["mcp:access"])) return false;
+
   // Update last_used_at fire-and-forget
   db.update(apiTokens)
     .set({ lastUsedAt: Math.floor(Date.now() / 1000) })
@@ -87,6 +101,7 @@ const mcpHandler = createMcpHandler(
         },
       },
       async ({ title, content, collectionId }) => {
+        const parsedCreate = mcpCreateDocInputSchema.parse({ title, content, collectionId });
         await dbReady;
         const id = nanoid();
         const now = Math.floor(Date.now() / 1000);
@@ -95,9 +110,9 @@ const mcpHandler = createMcpHandler(
           .insert(documents)
           .values({
             id,
-            title: title ?? "Untitled",
-            content: content ?? "",
-            collectionId: collectionId ?? null,
+            title: parsedCreate.title,
+            content: parsedCreate.content ?? "",
+            collectionId: parsedCreate.collectionId ?? null,
             sortOrder: 0,
             createdAt: now,
             updatedAt: now,
@@ -124,15 +139,16 @@ const mcpHandler = createMcpHandler(
         },
       },
       async ({ id, title, content }) => {
+        const parsedUpdate = mcpUpdateDocInputSchema.parse({ id, title, content });
         await dbReady;
         const updates: Record<string, unknown> = {};
         const now = Math.floor(Date.now() / 1000);
-        if (title !== undefined) {
-          updates.title = title;
+        if (parsedUpdate.title !== undefined) {
+          updates.title = parsedUpdate.title;
           updates.updatedAt = now;
         }
-        if (content !== undefined) {
-          updates.content = content;
+        if (parsedUpdate.content !== undefined) {
+          updates.content = parsedUpdate.content;
           updates.updatedAt = now;
         }
 
@@ -140,7 +156,7 @@ const mcpHandler = createMcpHandler(
           const doc = await db
             .select()
             .from(documents)
-            .where(eq(documents.id, id))
+            .where(eq(documents.id, parsedUpdate.id))
             .get();
           if (!doc) {
             return {
@@ -156,7 +172,7 @@ const mcpHandler = createMcpHandler(
         const [doc] = await db
           .update(documents)
           .set(updates)
-          .where(eq(documents.id, id))
+          .where(eq(documents.id, parsedUpdate.id))
           .returning();
 
         if (!doc) {
@@ -166,7 +182,7 @@ const mcpHandler = createMcpHandler(
           };
         }
 
-        await syncDocumentFTS(id, doc.title);
+        await syncDocumentFTS(parsedUpdate.id, doc.title);
 
         return {
           content: [{ type: "text", text: JSON.stringify(doc) }],
@@ -277,6 +293,7 @@ const mcpHandler = createMcpHandler(
         },
       },
       async ({ name }) => {
+        const parsedCollection = mcpCreateCollectionInputSchema.parse({ name });
         await dbReady;
         const id = nanoid();
         const now = Math.floor(Date.now() / 1000);
@@ -285,7 +302,7 @@ const mcpHandler = createMcpHandler(
           .insert(collections)
           .values({
             id,
-            name,
+            name: parsedCollection.name,
             sortOrder: 0,
             createdAt: now,
           })
@@ -315,11 +332,12 @@ const mcpHandler = createMcpHandler(
         },
       },
       async ({ id, isPublic, inviteEmail }) => {
+        const parsedShare = mcpShareInputSchema.parse({ id, isPublic, inviteEmail });
         await dbReady;
         let doc = await db
           .select()
           .from(documents)
-          .where(eq(documents.id, id))
+          .where(eq(documents.id, parsedShare.id))
           .get();
         if (!doc) {
           return {
@@ -329,26 +347,26 @@ const mcpHandler = createMcpHandler(
         }
 
         // Update isPublic if provided
-        if (isPublic !== undefined) {
+        if (parsedShare.isPublic !== undefined) {
           const [updated] = await db
             .update(documents)
-            .set({ isPublic })
-            .where(eq(documents.id, id))
+            .set({ isPublic: parsedShare.isPublic })
+            .where(eq(documents.id, parsedShare.id))
             .returning();
           doc = updated;
         }
 
         // Add permission for invited email if provided
         let permission = null;
-        if (inviteEmail) {
+        if (parsedShare.inviteEmail) {
           const permId = nanoid();
           const now = Math.floor(Date.now() / 1000);
           const [perm] = await db
             .insert(documentPermissions)
             .values({
               id: permId,
-              documentId: id,
-              email: inviteEmail,
+              documentId: parsedShare.id,
+              email: parsedShare.inviteEmail,
               role: "viewer",
               createdAt: now,
             })

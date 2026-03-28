@@ -84,7 +84,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
     } catch {
       plainText = updated.content || "";
     }
-    await syncDocumentFTS(id, updated.title, plainText);
+    await syncDocumentFTS(id, updated.title, plainText).catch(() => {
+      // best-effort; maintenance reindex can repair FTS drift
+    });
   }
 
   return NextResponse.json(doc);
@@ -97,8 +99,6 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   const { id } = await params;
 
-  await deleteDocumentFTS(id);
-
   const [doc] = await db
     .delete(documents)
     .where(eq(documents.id, id))
@@ -107,5 +107,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (!doc) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  await deleteDocumentFTS(id).catch(() => {
+    // best-effort; maintenance reindex can repair FTS drift
+  });
+
   return NextResponse.json({ success: true });
 }

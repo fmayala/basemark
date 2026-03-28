@@ -15,6 +15,8 @@ type RequireAuthOptions = {
   allowToken?: boolean;
 };
 
+const DEFAULT_REQUIRED_TOKEN_SCOPES = ["docs:write"];
+
 type BearerValidationResult = "ok" | "invalid" | "scope_denied";
 
 async function validateBearerToken(
@@ -45,7 +47,7 @@ async function validateBearerToken(
 
 export async function isApiAuthenticated(req?: NextRequest): Promise<boolean> {
   if (isDevBypass) return true;
-  if (req && (await validateBearerToken(req, [])) === "ok") return true;
+  if (req && (await validateBearerToken(req, DEFAULT_REQUIRED_TOKEN_SCOPES)) === "ok") return true;
   const session = await auth();
   if (!session?.user) return false;
   return isOwnerEmail(session.user.email);
@@ -55,7 +57,7 @@ export async function requireAuth(
   req: NextRequest,
   options: RequireAuthOptions = {},
 ): Promise<NextResponse | null> {
-  const { requiredScopes = [], allowToken = true } = options;
+  const { requiredScopes = DEFAULT_REQUIRED_TOKEN_SCOPES, allowToken = true } = options;
   if (isDevBypass) return null;
 
   if (allowToken) {

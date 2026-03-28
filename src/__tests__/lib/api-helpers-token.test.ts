@@ -19,7 +19,7 @@ vi.mock("@/lib/db", () => ({
   dbReady: Promise.resolve(),
 }));
 
-const { requireAuth } = await import("@/lib/api-helpers");
+const { isApiAuthenticated, requireAuth } = await import("@/lib/api-helpers");
 
 function makeRequest(token: string): NextRequest {
   return new NextRequest("http://localhost:3000/api/documents", {
@@ -62,6 +62,24 @@ describe("requireAuth token scope", () => {
     });
 
     expect(res?.status).toBe(403);
+  });
+
+  it("uses docs:write as default required scope when omitted", async () => {
+    const token = "bm_default_scope_missing";
+    await insertToken({ token, scope: "docs:read" });
+
+    const res = await requireAuth(makeRequest(token));
+
+    expect(res?.status).toBe(403);
+  });
+
+  it("allows token auth with default scope when token has docs:write", async () => {
+    const token = "bm_default_scope_present";
+    await insertToken({ token, scope: "docs:read docs:write" });
+
+    const res = await requireAuth(makeRequest(token));
+
+    expect(res).toBeNull();
   });
 
   it("returns null when bearer token satisfies required scopes", async () => {
@@ -122,5 +140,15 @@ describe("requireAuth token scope", () => {
     authMock.mockResolvedValue({ user: { email: "owner@example.com" } });
     const allowed = await requireAuth(makeRequest(token), { allowToken: false });
     expect(allowed).toBeNull();
+  });
+
+  it("isApiAuthenticated requires docs:write scope for bearer tokens", async () => {
+    const readOnlyToken = "bm_isapi_read_only";
+    await insertToken({ token: readOnlyToken, scope: "docs:read" });
+    await expect(isApiAuthenticated(makeRequest(readOnlyToken))).resolves.toBe(false);
+
+    const writableToken = "bm_isapi_writable";
+    await insertToken({ token: writableToken, scope: "docs:read docs:write" });
+    await expect(isApiAuthenticated(makeRequest(writableToken))).resolves.toBe(true);
   });
 });

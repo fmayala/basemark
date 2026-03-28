@@ -59,7 +59,7 @@ export default function TabBar({
       </div>
 
       {/* Tabs */}
-      <div className="flex items-end flex-1 overflow-hidden pl-[14px]" role="tablist" aria-label="Open documents">
+      <div className="flex items-end flex-1 overflow-hidden" role="tablist" aria-label="Open documents">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           return (

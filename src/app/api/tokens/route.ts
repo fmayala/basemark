@@ -5,10 +5,10 @@ import { requireAuth, validateBody } from "@/lib/api-helpers";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import {
-  DEFAULT_TOKEN_SCOPES,
   formatTokenPrefix,
   generateApiToken,
   hashApiToken,
+  normalizeTokenScopes,
 } from "@/lib/token-security";
 import { isNull } from "drizzle-orm";
 
@@ -30,9 +30,15 @@ export async function POST(req: NextRequest) {
   const tokenHash = hashApiToken(token);
   const tokenPrefix = formatTokenPrefix(token);
   const name = body.name ?? "Unnamed token";
-  const scope = (body.scope && body.scope.length > 0
-    ? body.scope
-    : [...DEFAULT_TOKEN_SCOPES]).join(" ");
+  let scopeValues: string[];
+  try {
+    scopeValues = normalizeTokenScopes(body.scope);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid token scope";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  const scope = scopeValues.join(" ");
   const createdAt = Math.floor(Date.now() / 1000);
 
   await db.insert(apiTokens).values({

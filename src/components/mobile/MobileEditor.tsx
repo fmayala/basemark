@@ -6,6 +6,11 @@ import Editor from "@/components/editor/Editor";
 import MobileFormatToolbar from "@/components/mobile/MobileFormatToolbar";
 import ShareDialog from "@/components/share/ShareDialog";
 import { Button } from "@/components/ui/button";
+import {
+  clearPendingSync,
+  readPendingSync,
+  writePendingSync,
+} from "@/lib/client/pending-sync-outbox";
 
 const DOCUMENT_SYNC_EVENT = "outline:document-sync";
 
@@ -43,6 +48,7 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
   const [content, setContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [hasUnsent, setHasUnsent] = useState(false);
   const [editorInstance, setEditorInstance] = useState<any>(null);
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -57,6 +63,37 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
   const mountedRef = useRef(true);
   const inFlightSavesRef = useRef(0);
 
+  const hasPersistedUnsent = useCallback(() => {
+    const pending = readPendingSync(docId);
+    return Boolean(pending?.pendingTitle !== undefined || pending?.pendingContent !== undefined);
+  }, [docId]);
+
+  const syncSaveUiState = useCallback(
+    (errorMessage: string | null = null) => {
+      const inFlight = inFlightSavesRef.current > 0;
+      const unsent =
+        hasPersistedUnsent() ||
+        pendingTitleRef.current !== null ||
+        pendingContentRef.current !== null;
+
+      setIsSaving(inFlight);
+      setHasUnsent(unsent);
+
+      if (inFlight) {
+        setSaveError(null);
+        return;
+      }
+
+      if (errorMessage) {
+        setSaveError(errorMessage);
+        return;
+      }
+
+      setSaveError(null);
+    },
+    [hasPersistedUnsent],
+  );
+
   useEffect(() => {
     return () => {
       mountedRef.current = false;
@@ -66,17 +103,14 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
   const beginSave = useCallback(() => {
     inFlightSavesRef.current += 1;
     if (!mountedRef.current) return;
-    setIsSaving(true);
-    setSaveError(null);
-  }, []);
+    syncSaveUiState();
+  }, [syncSaveUiState]);
 
   const endSave = useCallback(() => {
     inFlightSavesRef.current = Math.max(0, inFlightSavesRef.current - 1);
     if (!mountedRef.current) return;
-    if (inFlightSavesRef.current === 0) {
-      setIsSaving(false);
-    }
-  }, []);
+    syncSaveUiState();
+  }, [syncSaveUiState]);
 
   const persistTitle = useCallback(
     async (value: string, options?: { flush?: boolean }) => {
@@ -111,16 +145,30 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
           title: value,
           ...(typeof data?.updatedAt === "number" ? { updatedAt: data.updatedAt } : {}),
         });
+
+        const current = readPendingSync(docId);
+        if (current) {
+          writePendingSync({
+            ...current,
+            pendingTitle: undefined,
+            clientUpdatedAt: Date.now(),
+            lastError: undefined,
+          });
+          const next = readPendingSync(docId);
+          if (next?.pendingTitle === undefined && next?.pendingContent === undefined) {
+            clearPendingSync(docId);
+          }
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (requestId !== titleRequestIdRef.current) return;
         if (!mountedRef.current) return;
-        setSaveError("Failed to save changes. Your latest edits are still local.");
+        syncSaveUiState("Failed to save changes. Your latest edits are still local.");
       } finally {
         endSave();
       }
     },
-    [beginSave, docId, endSave],
+    [beginSave, docId, endSave, syncSaveUiState],
   );
 
   const persistContent = useCallback(
@@ -156,17 +204,52 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
           content: value,
           ...(typeof data?.updatedAt === "number" ? { updatedAt: data.updatedAt } : {}),
         });
+
+        const current = readPendingSync(docId);
+        if (current) {
+          writePendingSync({
+            ...current,
+            pendingContent: undefined,
+            clientUpdatedAt: Date.now(),
+            lastError: undefined,
+          });
+          const next = readPendingSync(docId);
+          if (next?.pendingTitle === undefined && next?.pendingContent === undefined) {
+            clearPendingSync(docId);
+          }
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (requestId !== contentRequestIdRef.current) return;
         if (!mountedRef.current) return;
-        setSaveError("Failed to save changes. Your latest edits are still local.");
+        syncSaveUiState("Failed to save changes. Your latest edits are still local.");
       } finally {
         endSave();
       }
     },
-    [beginSave, docId, endSave],
+    [beginSave, docId, endSave, syncSaveUiState],
   );
+
+  const replayPendingSync = useCallback(() => {
+    const pending = readPendingSync(docId);
+    if (!pending) return;
+
+    if (pending.pendingTitle !== undefined) {
+      setTitle(pending.pendingTitle);
+      pendingTitleRef.current = pending.pendingTitle;
+      void persistTitle(pending.pendingTitle, { flush: true });
+    }
+
+    if (pending.pendingContent !== undefined) {
+      setContent(pending.pendingContent);
+      pendingContentRef.current = pending.pendingContent;
+      void persistContent(pending.pendingContent, { flush: true });
+    }
+  }, [docId, persistContent, persistTitle]);
+
+  useEffect(() => {
+    syncSaveUiState();
+  }, [syncSaveUiState]);
 
   const flushPendingSaves = useCallback(() => {
     if (titleDebounceRef.current) {
@@ -194,7 +277,6 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
   // Fetch doc on mount and when docId changes
   useEffect(() => {
     let cancelled = false;
-    flushPendingSaves();
     setLoading(true);
     setDoc(null);
     setEditorInstance(null);
@@ -209,6 +291,8 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
         setDoc(data);
         setTitle(data.title ?? "");
         setContent(data.content ?? "");
+        replayPendingSync();
+        syncSaveUiState();
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -221,12 +305,23 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
       cancelled = true;
       flushPendingSaves();
     };
-  }, [docId, flushPendingSaves]);
+  }, [docId, flushPendingSaves, replayPendingSync, syncSaveUiState]);
 
   // Save title with 300ms debounce
   const handleTitleChange = useCallback(
     (newTitle: string) => {
       setTitle(newTitle);
+
+      const current = readPendingSync(docId);
+      writePendingSync({
+        docId,
+        pendingTitle: newTitle,
+        pendingContent: pendingContentRef.current ?? current?.pendingContent,
+        clientUpdatedAt: Date.now(),
+        retryCount: current?.retryCount,
+        lastError: current?.lastError,
+      });
+      syncSaveUiState();
 
       pendingTitleRef.current = newTitle;
       if (titleDebounceRef.current) clearTimeout(titleDebounceRef.current);
@@ -238,13 +333,24 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
         }
       }, 300);
     },
-    [persistTitle],
+    [docId, persistTitle, syncSaveUiState],
   );
 
   // Save content with 500ms debounce
   const handleContentUpdate = useCallback(
     (newContent: string) => {
       setContent(newContent);
+
+      const current = readPendingSync(docId);
+      writePendingSync({
+        docId,
+        pendingTitle: pendingTitleRef.current ?? current?.pendingTitle,
+        pendingContent: newContent,
+        clientUpdatedAt: Date.now(),
+        retryCount: current?.retryCount,
+        lastError: current?.lastError,
+      });
+      syncSaveUiState();
 
       pendingContentRef.current = newContent;
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -256,21 +362,25 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
         }
       }, 500);
     },
-    [persistContent],
+    [docId, persistContent, syncSaveUiState],
   );
 
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         flushPendingSaves();
+        return;
       }
+
+      replayPendingSync();
+      syncSaveUiState();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [flushPendingSaves]);
+  }, [flushPendingSaves, replayPendingSync, syncSaveUiState]);
 
   return (
     <div className="flex flex-col h-full w-full bg-bg-primary">
@@ -391,6 +501,11 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
             {saveError && (
               <p className="mt-2 mb-3 text-xs text-danger" role="alert">
                 {saveError}
+              </p>
+            )}
+            {!isSaving && !saveError && hasUnsent && (
+              <p className="mt-2 mb-3 text-xs text-text-faint" aria-live="polite">
+                Unsent changes are queued locally. Reopen this document to retry sync.
               </p>
             )}
             <Editor content={content} onUpdate={handleContentUpdate} docId={docId} onReady={setEditorInstance} />
