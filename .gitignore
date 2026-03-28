@@ -8,6 +8,7 @@ tsconfig.tsbuildinfo
 .env.local
 .vercel
 .superpowers/
+.worktrees/
 docs/
 .impeccable.md
 CLAUDE.md
