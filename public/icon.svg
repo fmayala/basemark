@@ -1,4 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- Subtle dark background with rounded corners -->
+  <rect width="512" height="512" rx="108" fill="#1e1e1e"/>
+
   <defs>
     <linearGradient id="flow" x1="0" y1="0.7" x2="1" y2="0.3" gradientUnits="objectBoundingBox">
       <stop offset="0%" stop-color="#dadada" stop-opacity="0.15"/>
@@ -9,5 +12,8 @@
       <stop offset="100%" stop-color="#dadada" stop-opacity="0.15"/>
     </linearGradient>
   </defs>
-  <path d="M5 18L10.2 7.5Q11 6 11.8 7.5L13.2 11Q14 12.5 14.8 11L19 6" stroke="url(#flow)" stroke-width="2"/>
+
+  <!-- Logomark centered and scaled up -->
+  <path d="M128 352L234 112Q256 68 278 112L304 176Q320 208 336 176L384 80"
+        stroke="url(#flow)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
