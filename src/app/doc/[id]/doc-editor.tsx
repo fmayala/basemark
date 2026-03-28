@@ -214,6 +214,12 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
   }, [persistContent, persistTitle]);
 
   // Save title with 300ms debounce
+  // Sync browser tab title
+  useEffect(() => {
+    document.title = title ? `${title} - Basemark` : "Basemark";
+    return () => { document.title = "Basemark"; };
+  }, [title]);
+
   const handleTitleChange = useCallback(
     (newTitle: string) => {
       setTitle(newTitle);

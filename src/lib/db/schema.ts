@@ -69,8 +69,12 @@ export const shareLinks = sqliteTable("share_links", {
 
 export const apiTokens = sqliteTable("api_tokens", {
   id: text("id").primaryKey(),
-  token: text("token").notNull().unique(),
+  tokenHash: text("token_hash").notNull().unique(),
+  tokenPrefix: text("token_prefix").notNull(),
   name: text("name").notNull(),
+  scope: text("scope").notNull(),
+  expiresAt: integer("expires_at"),
+  revokedAt: integer("revoked_at"),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),
