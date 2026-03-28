@@ -1,0 +1,482 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-size-ui: 0.8125rem;          /* 13px — desktop sidebar, tabs, UI chrome */
+  --font-size-mobile-input: 0.9375rem; /* 15px — mobile inputs, buttons */
+  --font-size-mobile-title: 1.0625rem; /* 17px — mobile note row titles */
+  --font-size-display: 2.5rem;          /* 40px — branding, doc titles */
+  --color-bg-primary: #1e1e1e;
+  --color-bg-sidebar: #262626;
+  --color-bg-code: #242424;
+  --color-bg-input: #2a2a2a;
+  --color-bg-hover: #363636;
+  --color-bg-active: rgba(255, 255, 255, 0.06);
+  --color-border: #2a2a2a;
+  --color-border-subtle: #363636;
+  --color-text-primary: #dadada;
+  --color-text-secondary: #b3b3b3;
+  --color-text-faint: #999999;
+  --color-text-dimmed: #757575;
+  --color-text-ghost: #666666;
+  --color-accent: #0786d5;
+  --color-focus-ring: #4a4a4a;
+  --color-danger: #ed2651;
+  --color-selection: rgba(255, 255, 255, 0.1);
+  --color-scrollbar-thumb: #3f3f3f;
+  --color-callout-warning: #f08a24;
+  --color-callout-success: #3ad984;
+  --color-callout-info-bg: rgba(7, 134, 213, 0.08);
+  --color-callout-warning-bg: rgba(240, 138, 36, 0.08);
+  --color-callout-success-bg: rgba(58, 217, 132, 0.08);
+  --color-code-text: hsl(20, 90%, 68%);
+  --font-title: 'Instrument Serif', serif;
+  --font-body: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* Box-sizing reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg-sidebar);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible {
+  outline: 1px solid var(--color-border-subtle);
+  outline-offset: 1px;
+}
+
+::selection {
+  background-color: var(--color-selection);
+}
+
+/* Thin scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar-thumb);
+  border-radius: 3px;
+}
+
+/* ---- Inverse rounded corners ---- */
+
+/* Active tab — left inverse corner */
+.tab-active::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -12px;
+  width: 12px;
+  height: 12px;
+  background: transparent;
+  border-bottom-right-radius: 12px;
+  box-shadow: 0 0 0 12px var(--color-bg-primary);
+  clip-path: inset(0 0 0 0);
+}
+
+/* Active tab — right inverse corner */
+.tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: -12px;
+  width: 12px;
+  height: 12px;
+  background: transparent;
+  border-bottom-left-radius: 12px;
+  box-shadow: 0 0 0 12px var(--color-bg-primary);
+  clip-path: inset(0 0 0 0);
+}
+
+/* Content area — top-left inverse corner (sidebar junction) */
+.content-area::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -12px;
+  width: 12px;
+  height: 12px;
+  background: transparent;
+  border-bottom-right-radius: 12px;
+  box-shadow: 0 0 0 12px var(--color-bg-primary);
+  clip-path: inset(0 0 0 0);
+  z-index: 1;
+}
+
+/* Content area — top-right inverse corner */
+.content-area::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  background: transparent;
+  border-bottom-left-radius: 12px;
+  box-shadow: 0 0 0 12px var(--color-bg-primary);
+  clip-path: inset(0 0 0 0);
+  z-index: 1;
+}
+
+/* Editor styles */
+.basemark-editor { outline: none; min-height: 200px; }
+.basemark-editor p { margin-bottom: 0.5em; }
+
+/* Headings */
+.basemark-editor h1, .basemark-editor h2, .basemark-editor h3, .basemark-editor h4 {
+  font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; color: var(--color-text-primary);
+}
+.basemark-editor h1 { font-size: 2em; margin-top: 2.4em; margin-bottom: 0.4em; }
+.basemark-editor h2 { font-size: 1.5em; margin-top: 2em; margin-bottom: 0.5em; padding-top: 0.8em; border-top: 1px solid var(--color-border); }
+.basemark-editor h3 { font-size: 1.25em; margin-top: 1.6em; margin-bottom: 0.4em; }
+
+/* Code blocks */
+.basemark-editor pre {
+  background: var(--color-bg-code); border: 1px solid var(--color-border); border-radius: 8px;
+  padding: 1em 1.2em; margin: 1.2em 0; font-size: 0.875em; line-height: 1.65;
+  font-family: var(--font-mono); overflow-x: auto;
+  tab-size: 4;
+  -moz-tab-size: 4;
+  white-space: pre;
+}
+.basemark-editor pre code {
+  background: transparent; color: var(--color-text-primary); padding: 0; font-family: inherit;
+  font-variant-ligatures: none; /* prevent ligatures from breaking alignment */
+  text-rendering: optimizeSpeed; /* disable kerning for perfect monospace */
+}
+
+/* Mermaid diagram container */
+.basemark-editor [data-type="codeBlock"] .mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Inline code */
+.basemark-editor code {
+  background: var(--color-bg-input); color: var(--color-code-text); padding: 0.15em 0.4em;
+  border-radius: 4px; font-size: 0.88em; font-family: var(--font-mono);
+}
+
+/* Callouts */
+.basemark-editor .callout { border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 1em 0; }
+.basemark-editor .callout[data-callout-type="info"] { background: var(--color-callout-info-bg); border-left: 3px solid var(--color-accent); }
+.basemark-editor .callout[data-callout-type="warning"] { background: var(--color-callout-warning-bg); border-left: 3px solid var(--color-callout-warning); }
+.basemark-editor .callout[data-callout-type="tip"] { background: var(--color-callout-success-bg); border-left: 3px solid var(--color-callout-success); }
+.basemark-editor .callout[data-callout-type="success"] { background: var(--color-callout-success-bg); border-left: 3px solid var(--color-callout-success); }
+
+/* Tables */
+.basemark-editor table { border-collapse: collapse; width: 100%; margin: 1.2em 0; font-size: 0.92em; }
+.basemark-editor th { background: var(--color-bg-input); font-weight: 600; text-align: left; padding: 10px 14px; border: 1px solid var(--color-border-subtle); }
+.basemark-editor td { padding: 10px 14px; border: 1px solid var(--color-border-subtle); }
+
+/* Task lists */
+.basemark-editor ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.basemark-editor ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; }
+.basemark-editor ul[data-type="taskList"] input[type="checkbox"] { margin-top: 4px; accent-color: var(--color-accent); }
+
+/* Blockquotes */
+.basemark-editor blockquote { border-left: 3px solid var(--color-text-dimmed); padding: 0.1em 0 0.1em 1.2em; margin: 1em 0; font-style: normal; }
+
+/* HR */
+.basemark-editor hr { border: none; border-top: 1px solid var(--color-border); margin: 2em 0; opacity: 0.6; }
+
+/* Links */
+.basemark-editor a { color: var(--color-accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--color-text-dimmed); }
+
+/* Placeholder */
+.basemark-editor .is-editor-empty:first-child::before {
+  content: attr(data-placeholder); color: var(--color-text-ghost); float: left; height: 0; pointer-events: none;
+}
+
+/* Lists — restore styles stripped by Tailwind preflight */
+.basemark-editor ul:not([data-type="taskList"]) {
+  list-style-type: disc;
+  padding-left: 1.25em;
+  margin: 0.5em 0;
+}
+.basemark-editor ol {
+  list-style-type: decimal;
+  padding-left: 1.25em;
+  margin: 0.5em 0;
+}
+.basemark-editor li {
+  margin-bottom: 0.35em;
+}
+.basemark-editor li + li {
+  margin-top: 0.35em;
+}
+.basemark-editor li p {
+  margin: 0;
+}
+
+/* Slash command menu */
+.slash-menu {
+  background: var(--color-bg-sidebar);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: var(--font-size-ui);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.slash-menu-item.is-selected,
+.slash-menu-item:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Subtle transitions on interactive elements */
+button, a {
+  transition: color 0.15s cubic-bezier(0.25, 1, 0.5, 1), background 0.15s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.15s cubic-bezier(0.25, 1, 0.5, 1), border-color 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Slash menu transitions */
+.slash-menu-item {
+  transition: background 0.12s cubic-bezier(0.25, 1, 0.5, 1), color 0.12s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Tab transitions */
+.tab-active {
+  transition: background 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@media (max-width: 768px) {
+  .basemark-editor h1 { font-size: 1.5em; }
+  .basemark-editor h2 { font-size: 1.25em; }
+}
+
+/* Reduced motion override removed — Basemark always animates.
+   Re-enable if you want to respect OS preference:
+   @media (prefers-reduced-motion: reduce) { ... } */
+
+@keyframes tabSlideIn {
+  from { opacity: 0; max-width: 0; padding-left: 0; padding-right: 0; }
+  50%  { opacity: 0; max-width: 180px; padding-left: 0.5rem; padding-right: 0.5rem; }
+  to   { opacity: 1; max-width: 180px; }
+}
+.tab-enter { animation: tabSlideIn 0.35s ease-out both; overflow: hidden; }
+
+.tree-expand {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.tree-expand.collapsed {
+  grid-template-rows: 0fr;
+}
+.tree-expand > div {
+  overflow: hidden;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.skeleton {
+  background: var(--color-bg-hover);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* Safe areas for notch devices */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Touch optimization */
+@media (pointer: coarse) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+@theme inline {
+  --font-heading: var(--font-body);
+  --font-sans: var(--font-body);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Baseline dark theme mapped to shadcn CSS variables */
+:root {
+  --background: #1e1e1e;
+  --foreground: #dadada;
+  --card: #262626;
+  --card-foreground: #dadada;
+  --popover: #262626;
+  --popover-foreground: #dadada;
+  --primary: #dadada;
+  --primary-foreground: #1e1e1e;
+  --secondary: #2a2a2a;
+  --secondary-foreground: #dadada;
+  --muted: #2a2a2a;
+  --muted-foreground: #999999;
+  --accent: #2a2a2a;
+  --accent-foreground: #dadada;
+  --destructive: #ed2651;
+  --border: #363636;
+  --input: #363636;
+  --ring: #4a4a4a;
+  --chart-1: #0786d5;
+  --chart-2: #3ad984;
+  --chart-3: #f08a24;
+  --chart-4: #ed2651;
+  --chart-5: #666666;
+  --radius: 0.5rem;
+  --sidebar: #262626;
+  --sidebar-foreground: #dadada;
+  --sidebar-primary: #dadada;
+  --sidebar-primary-foreground: #1e1e1e;
+  --sidebar-accent: #363636;
+  --sidebar-accent-foreground: #dadada;
+  --sidebar-border: #363636;
+  --sidebar-ring: #4a4a4a;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+}
+
+/* cmdk command palette styles */
+[cmdk-group-heading] {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-ghost);
+  font-weight: 600;
+  padding: 6px 12px 4px;
+}
+[cmdk-input] {
+  font-family: var(--font-body);
+}
+[cmdk-item] {
+  font-family: var(--font-body);
+}
+
+/* Image styles */
+.basemark-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 1em 0;
+}
+
+/* Highlight */
+.basemark-editor mark {
+  background-color: rgba(245, 190, 49, 0.3);
+  border-radius: 2px;
+  padding: 0.1em 0.15em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Focus highlight */
+.basemark-editor .has-focus {
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+/* YouTube embeds */
+.basemark-editor iframe {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 1em 0;
+}
+
+/* KaTeX math (if installed) */
+.basemark-editor .katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+}

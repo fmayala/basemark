@@ -1,0 +1,14 @@
+node_modules
+.next
+basemark.db
+basemark.db-shm
+basemark.db-wal
+package-lock.json
+tsconfig.tsbuildinfo
+.env.local
+.vercel
+.superpowers/
+docs/
+.impeccable.md
+CLAUDE.md
+check-domains.ts
