@@ -16,6 +16,7 @@ export function hashApiToken(token: string): string {
 }
 
 export function formatTokenPrefix(token: string): string {
+  if (token.length <= 11) return token;
   return `${token.slice(0, 11)}...`;
 }
 

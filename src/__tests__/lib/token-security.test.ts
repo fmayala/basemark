@@ -29,4 +29,27 @@ describe("token-security", () => {
     expect(tokenHasScopes(scopes, ["mcp:access"])).toBe(true);
     expect(tokenHasScopes(scopes, ["tokens:manage"])).toBe(false);
   });
+
+  it("returns an empty scope set for nullish/blank values", () => {
+    expect(parseTokenScopes(null).size).toBe(0);
+    expect(parseTokenScopes(undefined).size).toBe(0);
+    expect(parseTokenScopes("").size).toBe(0);
+    expect(parseTokenScopes("   \n\t  ").size).toBe(0);
+  });
+
+  it("deduplicates parsed scopes", () => {
+    const scopes = parseTokenScopes("docs:read docs:read docs:write docs:read");
+    expect(scopes.size).toBe(2);
+    expect(scopes.has("docs:read")).toBe(true);
+    expect(scopes.has("docs:write")).toBe(true);
+  });
+
+  it("treats empty required scopes as allowed", () => {
+    const scopes = parseTokenScopes("docs:read");
+    expect(tokenHasScopes(scopes, [])).toBe(true);
+  });
+
+  it("does not truncate very short tokens", () => {
+    expect(formatTokenPrefix("bm_short")).toBe("bm_short");
+  });
 });
