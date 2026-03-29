@@ -71,7 +71,8 @@ export default function CommandPalette({
                   {documents.map((doc) => (
                     <Command.Item
                       key={doc.id}
-                      value={doc.title}
+                      value={`${doc.title || "Untitled"} ${doc.id}`}
+                      keywords={[doc.title || "Untitled"]}
                       onSelect={() => { onSelect(doc.id); onClose(); }}
                       className="flex items-center px-3 py-2 rounded-md text-ui text-text-secondary cursor-pointer data-[selected=true]:bg-bg-hover data-[selected=true]:text-text-primary"
                     >

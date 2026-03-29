@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useRef, useState, use } from "react";
 import { signIn, useSession } from "next-auth/react";
 import SharedDocView from "./shared-doc-view";
 import { Button } from "@/components/ui/button";
@@ -28,13 +28,27 @@ export default function SharePage({
   const { data: session } = useSession();
   const [state, setState] = useState<PageState>("loading");
   const [doc, setDoc] = useState<Doc | null>(null);
+  const latestRequestIdRef = useRef(0);
 
   useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const requestId = latestRequestIdRef.current + 1;
+    latestRequestIdRef.current = requestId;
+
     setState("loading");
-    fetch(`/api/share/${token}`)
+    fetch(`/api/share/${token}`, { signal: controller.signal })
       .then(async (res) => {
+        if (cancelled || latestRequestIdRef.current !== requestId) {
+          return;
+        }
+
         if (res.ok) {
-          setDoc(await res.json());
+          const payload = (await res.json()) as Doc;
+          if (cancelled || latestRequestIdRef.current !== requestId) {
+            return;
+          }
+          setDoc(payload);
           setState("ready");
         } else if (res.status === 401) {
           setState("auth_required");
@@ -46,7 +60,20 @@ export default function SharePage({
           setState("not_found");
         }
       })
-      .catch(() => setState("not_found"));
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        if (cancelled || latestRequestIdRef.current !== requestId) {
+          return;
+        }
+        setState("not_found");
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [token, session]);
 
   if (state === "loading") {

@@ -360,7 +360,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Content area */}
-        <div className="content-area flex-1 flex flex-col bg-bg-primary rounded-t-xl relative overflow-hidden">
+        <div className="content-area flex-1 flex flex-col bg-bg-primary relative overflow-hidden">
           <div className="flex-1 overflow-auto">{children}</div>
           {activeDocId && (
             <StatusBar wordCount={wordCount} charCount={charCount} updatedAt={activeDoc?.updatedAt} />
