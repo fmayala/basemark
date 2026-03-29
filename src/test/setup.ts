@@ -51,11 +51,10 @@ export function createTestDb() {
     CREATE TABLE IF NOT EXISTS api_tokens (
       id TEXT PRIMARY KEY,
       token_hash TEXT NOT NULL UNIQUE,
-      token_prefix TEXT NOT NULL,
       name TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      expires_at INTEGER,
+      scope TEXT NOT NULL DEFAULT 'documents:read',
       revoked_at INTEGER,
+      expires_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       last_used_at INTEGER
     );

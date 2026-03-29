@@ -1,84 +1,65 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+
 import {
-  clearPendingSync,
-  readPendingSync,
-  writePendingSync,
-} from "@/lib/client/pending-sync-outbox";
+  buildPendingSyncRecord,
+  clearSyncedField,
+  hasPendingFields,
+  type PendingSyncRecord,
+} from "@/lib/client/editor-sync-engine";
 
-describe("pending-sync-outbox", () => {
-  const storage = new Map<string, string>();
+describe("pending sync outbox", () => {
+  it("persists pending fields into outbox and reads them back", () => {
+    const pending: PendingSyncRecord = {
+      title: "Draft title",
+      content: "Draft content",
+    };
 
-  beforeEach(() => {
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        storage.set(key, value);
-      },
-      removeItem: (key: string) => {
-        storage.delete(key);
-      },
-      clear: () => {
-        storage.clear();
-      },
-      key: (index: number) => Array.from(storage.keys())[index] ?? null,
-      get length() {
-        return storage.size;
-      },
-    } satisfies Storage);
+    const outbox = buildPendingSyncRecord(pending);
 
-    localStorage.clear();
+    expect(outbox).toEqual({ title: "Draft title", content: "Draft content" });
+    expect(hasPendingFields(outbox)).toBe(true);
   });
 
-  it("persists and reads latest payload", () => {
-    writePendingSync({ docId: "doc-1", pendingContent: "hello", clientUpdatedAt: 100 });
-    expect(readPendingSync("doc-1")?.pendingContent).toBe("hello");
+  it("clear behavior removes field from outbox", () => {
+    const pending: PendingSyncRecord = {
+      title: "Draft title",
+      content: "Draft content",
+    };
+
+    const cleared = clearSyncedField(pending, "title");
+    const outbox = buildPendingSyncRecord(cleared);
+
+    expect(cleared).toEqual({ title: null, content: "Draft content" });
+    expect(outbox).toEqual({ content: "Draft content" });
   });
 
-  it("clears persisted payload", () => {
-    writePendingSync({ docId: "doc-1", pendingTitle: "T", clientUpdatedAt: 100 });
-    clearPendingSync("doc-1");
-    expect(readPendingSync("doc-1")).toBeNull();
+  it("one-field clear preserves other field semantics for replay/flush", () => {
+    const pending: PendingSyncRecord = {
+      title: "",
+      content: "Body",
+    };
+
+    const afterContentSync = clearSyncedField(pending, "content");
+    const outbox = buildPendingSyncRecord(afterContentSync);
+
+    expect(afterContentSync).toEqual({ title: "", content: null });
+    expect(outbox).toEqual({ title: "" });
+    expect(hasPendingFields(outbox)).toBe(true);
   });
 
-  it("keeps empty-string pending fields", () => {
-    writePendingSync({
-      docId: "doc-1",
-      pendingTitle: "",
-      pendingContent: "",
-      clientUpdatedAt: 100,
-    });
+  it("replay-flush sequence reaches empty outbox after both fields clear", () => {
+    const pending: PendingSyncRecord = {
+      title: "T",
+      content: "C",
+    };
 
-    expect(readPendingSync("doc-1")).toMatchObject({
-      pendingTitle: "",
-      pendingContent: "",
-    });
-  });
+    const afterTitleSync = clearSyncedField(pending, "title");
+    expect(buildPendingSyncRecord(afterTitleSync)).toEqual({ content: "C" });
 
-  it("does not throw when localStorage operations fail", () => {
-    vi.stubGlobal("localStorage", {
-      getItem: () => {
-        throw new Error("blocked");
-      },
-      setItem: () => {
-        throw new Error("blocked");
-      },
-      removeItem: () => {
-        throw new Error("blocked");
-      },
-      clear: () => {
-        throw new Error("blocked");
-      },
-      key: () => null,
-      get length() {
-        return 0;
-      },
-    } satisfies Storage);
+    const afterContentSync = clearSyncedField(afterTitleSync, "content");
+    const outbox = buildPendingSyncRecord(afterContentSync);
 
-    expect(() =>
-      writePendingSync({ docId: "doc-1", pendingTitle: "x", clientUpdatedAt: Date.now() }),
-    ).not.toThrow();
-    expect(() => readPendingSync("doc-1")).not.toThrow();
-    expect(readPendingSync("doc-1")).toBeNull();
-    expect(() => clearPendingSync("doc-1")).not.toThrow();
+    expect(outbox).toEqual({});
+    expect(hasPendingFields(outbox)).toBe(false);
   });
 });

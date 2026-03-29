@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/api-helpers";
 import { searchDocuments } from "@/lib/db/fts";
 
 export async function GET(request: NextRequest) {
-  const authError = await requireAuth(request);
+  const authError = await requireAuth(request, { requiredScopes: ["documents:read"] });
   if (authError) return authError;
 
   const q = request.nextUrl.searchParams.get("q");

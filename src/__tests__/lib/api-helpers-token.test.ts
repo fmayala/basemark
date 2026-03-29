@@ -1,154 +1,95 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { createTestDb } from "@/test/setup";
-import { apiTokens } from "@/lib/db/schema";
-import { formatTokenPrefix, hashApiToken } from "@/lib/token-security";
 
 const authMock = vi.hoisted(() => vi.fn());
-
-let testDb = createTestDb();
+const isOwnerEmailMock = vi.hoisted(() => vi.fn());
+const validateBearerMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/auth", () => ({
   auth: authMock,
 }));
 
-vi.mock("@/lib/db", () => ({
-  get db() {
-    return testDb.db;
-  },
-  dbReady: Promise.resolve(),
+vi.mock("@/lib/authz", () => ({
+  isOwnerEmail: isOwnerEmailMock,
+}));
+
+vi.mock("@/domain/services/tokens-service", () => ({
+  createTokensService: () => ({
+    validateBearer: validateBearerMock,
+  }),
 }));
 
 const { isApiAuthenticated, requireAuth } = await import("@/lib/api-helpers");
 
-function makeRequest(token: string): NextRequest {
-  return new NextRequest("http://localhost:3000/api/documents", {
-    headers: { authorization: `Bearer ${token}` },
-  });
-}
-
-async function insertToken(options: {
-  token: string;
-  scope: string;
-  expiresAt?: number | null;
-  revokedAt?: number | null;
-}) {
-  const now = Math.floor(Date.now() / 1000);
-  await testDb.db.insert(apiTokens).values({
-    id: `tok_${Math.random().toString(36).slice(2)}`,
-    tokenHash: hashApiToken(options.token),
-    tokenPrefix: formatTokenPrefix(options.token),
-    name: "Test token",
-    scope: options.scope,
-    createdAt: now,
-    expiresAt: options.expiresAt ?? null,
-    revokedAt: options.revokedAt ?? null,
-  });
-}
-
-describe("requireAuth token scope", () => {
+describe("api helpers bearer token integration", () => {
   beforeEach(() => {
-    testDb = createTestDb();
     authMock.mockReset();
-    delete process.env.ALLOWED_EMAIL;
+    isOwnerEmailMock.mockReset();
+    validateBearerMock.mockReset();
   });
 
-  it("returns 403 when bearer token misses required scope", async () => {
-    const token = "bm_scope_missing";
-    await insertToken({ token, scope: "docs:read" });
+  it("isApiAuthenticated returns true when bearer token is valid", async () => {
+    validateBearerMock.mockResolvedValue({ status: "ok", token: { id: "tok_1" } });
 
-    const res = await requireAuth(makeRequest(token), {
-      requiredScopes: ["docs:write"],
+    const req = new NextRequest("http://localhost:3000/api/documents", {
+      headers: { Authorization: "Bearer bm_valid" },
     });
 
-    expect(res?.status).toBe(403);
+    await expect(isApiAuthenticated(req)).resolves.toBe(true);
+    expect(validateBearerMock).toHaveBeenCalledWith("bm_valid", []);
+    expect(authMock).not.toHaveBeenCalled();
   });
 
-  it("uses docs:write as default required scope when omitted", async () => {
-    const token = "bm_default_scope_missing";
-    await insertToken({ token, scope: "docs:read" });
+  it("isApiAuthenticated accepts case-insensitive bearer scheme", async () => {
+    validateBearerMock.mockResolvedValue({ status: "ok", token: { id: "tok_1" } });
 
-    const res = await requireAuth(makeRequest(token));
-
-    expect(res?.status).toBe(403);
-  });
-
-  it("allows token auth with default scope when token has docs:write", async () => {
-    const token = "bm_default_scope_present";
-    await insertToken({ token, scope: "docs:read docs:write" });
-
-    const res = await requireAuth(makeRequest(token));
-
-    expect(res).toBeNull();
-  });
-
-  it("returns null when bearer token satisfies required scopes", async () => {
-    const token = "bm_scope_ok";
-    await insertToken({ token, scope: "docs:read docs:write" });
-
-    const res = await requireAuth(makeRequest(token), {
-      requiredScopes: ["docs:write"],
+    const req = new NextRequest("http://localhost:3000/api/documents", {
+      headers: { Authorization: "bEaReR bm_valid" },
     });
 
-    expect(res).toBeNull();
+    await expect(isApiAuthenticated(req)).resolves.toBe(true);
+    expect(validateBearerMock).toHaveBeenCalledWith("bm_valid", []);
   });
 
-  it("accepts an empty required scopes list", async () => {
-    const token = "bm_scope_empty_required";
-    await insertToken({ token, scope: "" });
-
-    const res = await requireAuth(makeRequest(token), {
-      requiredScopes: [],
-    });
-
-    expect(res).toBeNull();
-  });
-
-  it("rejects revoked bearer tokens", async () => {
-    const token = "bm_revoked";
-    await insertToken({ token, scope: "docs:read", revokedAt: Math.floor(Date.now() / 1000) });
+  it("requireAuth ignores bearer token when allowBearer is false", async () => {
+    validateBearerMock.mockResolvedValue({ status: "ok", token: { id: "tok_1" } });
     authMock.mockResolvedValue(null);
 
-    const res = await requireAuth(makeRequest(token), {
-      requiredScopes: ["docs:read"],
+    const req = new NextRequest("http://localhost:3000/api/tokens", {
+      headers: { Authorization: "Bearer bm_valid" },
     });
+
+    const res = await requireAuth(req, { allowBearer: false });
 
     expect(res?.status).toBe(401);
+    expect(validateBearerMock).not.toHaveBeenCalled();
   });
 
-  it("rejects expired bearer tokens", async () => {
-    const token = "bm_expired";
-    await insertToken({ token, scope: "docs:read", expiresAt: Math.floor(Date.now() / 1000) - 60 });
+  it("requireAuth ignores bearer token by default", async () => {
+    validateBearerMock.mockResolvedValue({ status: "ok", token: { id: "tok_1" } });
     authMock.mockResolvedValue(null);
 
-    const res = await requireAuth(makeRequest(token), {
-      requiredScopes: ["docs:read"],
+    const req = new NextRequest("http://localhost:3000/api/documents", {
+      headers: { Authorization: "Bearer bm_valid" },
     });
 
+    const res = await requireAuth(req);
+
     expect(res?.status).toBe(401);
+    expect(validateBearerMock).not.toHaveBeenCalled();
   });
 
-  it("requires owner session when allowToken is false", async () => {
-    const token = "bm_owner_only";
-    await insertToken({ token, scope: "tokens:manage" });
-
+  it("requireAuth returns 403 when bearer token is scope denied", async () => {
+    validateBearerMock.mockResolvedValue({ status: "scope_denied" });
     authMock.mockResolvedValue(null);
-    const unauthorized = await requireAuth(makeRequest(token), { allowToken: false });
-    expect(unauthorized?.status).toBe(401);
 
-    process.env.ALLOWED_EMAIL = "owner@example.com";
-    authMock.mockResolvedValue({ user: { email: "owner@example.com" } });
-    const allowed = await requireAuth(makeRequest(token), { allowToken: false });
-    expect(allowed).toBeNull();
-  });
+    const req = new NextRequest("http://localhost:3000/api/mcp/http", {
+      headers: { Authorization: "Bearer bm_valid" },
+    });
 
-  it("isApiAuthenticated requires docs:write scope for bearer tokens", async () => {
-    const readOnlyToken = "bm_isapi_read_only";
-    await insertToken({ token: readOnlyToken, scope: "docs:read" });
-    await expect(isApiAuthenticated(makeRequest(readOnlyToken))).resolves.toBe(false);
+    const res = await requireAuth(req, { requiredScopes: ["mcp:invoke"] });
 
-    const writableToken = "bm_isapi_writable";
-    await insertToken({ token: writableToken, scope: "docs:read docs:write" });
-    await expect(isApiAuthenticated(makeRequest(writableToken))).resolves.toBe(true);
+    expect(res?.status).toBe(403);
+    expect(authMock).not.toHaveBeenCalled();
   });
 });

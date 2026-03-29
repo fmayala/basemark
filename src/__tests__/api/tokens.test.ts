@@ -1,72 +1,126 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { createTestDb } from "@/test/setup";
-import { apiTokens } from "@/lib/db/schema";
 
-let testDb = createTestDb();
+import { hashToken } from "@/domain/repos/tokens-repo";
+
+const requireAuthMock = vi.hoisted(() => vi.fn());
+const validateBodyMock = vi.hoisted(() => vi.fn());
+const insertMock = vi.hoisted(() => vi.fn());
+const selectMock = vi.hoisted(() => vi.fn());
+const deleteMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-helpers", () => ({
-  requireAuth: () => null,
-  validateBody: vi.fn().mockImplementation(async (req: NextRequest, schema: any) => {
-    const body = await req.json();
-    const result = schema.safeParse(body);
-    if (!result.success) {
-      const { NextResponse } = await import("next/server");
-      return [null, NextResponse.json({ error: result.error.flatten() }, { status: 400 })];
-    }
-    return [result.data, null];
-  }),
+  requireAuth: requireAuthMock,
+  validateBody: validateBodyMock,
 }));
 
 vi.mock("@/lib/db", () => ({
-  get db() {
-    return testDb.db;
+  db: {
+    insert: insertMock,
+    select: selectMock,
+    delete: deleteMock,
   },
   dbReady: Promise.resolve(),
 }));
 
-const { POST } = await import("@/app/api/tokens/route");
+const tokensRoute = await import("@/app/api/tokens/route");
+const tokenByIdRoute = await import("@/app/api/tokens/[id]/route");
 
-describe("POST /api/tokens", () => {
+describe("token routes", () => {
+  const insertValuesMock = vi.fn();
+  const selectFromMock = vi.fn();
+  const deleteWhereMock = vi.fn();
+  const deleteReturningMock = vi.fn();
+
   beforeEach(() => {
-    testDb = createTestDb();
+    requireAuthMock.mockReset();
+    validateBodyMock.mockReset();
+    insertMock.mockReset();
+    selectMock.mockReset();
+    deleteMock.mockReset();
+    insertValuesMock.mockReset();
+    selectFromMock.mockReset();
+    deleteWhereMock.mockReset();
+    deleteReturningMock.mockReset();
+
+    requireAuthMock.mockResolvedValue(null);
+    validateBodyMock.mockResolvedValue([{ name: "CI token" }, null]);
+    insertValuesMock.mockResolvedValue(undefined);
+    selectFromMock.mockResolvedValue([]);
+    deleteReturningMock.mockResolvedValue([{ id: "tok_1" }]);
+
+    insertMock.mockReturnValue({ values: insertValuesMock });
+    selectMock.mockReturnValue({ from: selectFromMock });
+    deleteWhereMock.mockReturnValue({ returning: deleteReturningMock });
+    deleteMock.mockReturnValue({ where: deleteWhereMock });
   });
 
-  it("normalizes and deduplicates requested scopes before storage", async () => {
-    const req = new NextRequest("http://localhost:3000/api/tokens", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Scoped token",
-        scope: [" docs:read ", "docs:write", "docs:read", "mcp:access"],
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
+  it("POST and GET use owner-session auth boundary", async () => {
+    await tokensRoute.POST(new NextRequest("http://localhost:3000/api/tokens", { method: "POST" }));
+    await tokensRoute.GET(new NextRequest("http://localhost:3000/api/tokens"));
 
-    const res = await POST(req);
+    expect(requireAuthMock).toHaveBeenNthCalledWith(1, expect.any(NextRequest), {
+      allowBearer: false,
+    });
+    expect(requireAuthMock).toHaveBeenNthCalledWith(2, expect.any(NextRequest), {
+      allowBearer: false,
+    });
+  });
+
+  it("DELETE uses owner-session auth boundary", async () => {
+    await tokenByIdRoute.DELETE(
+      new NextRequest("http://localhost:3000/api/tokens/tok_1", { method: "DELETE" }),
+      { params: Promise.resolve({ id: "tok_1" }) },
+    );
+
+    expect(requireAuthMock).toHaveBeenCalledWith(expect.any(NextRequest), {
+      allowBearer: false,
+    });
+  });
+
+  it("POST stores token hash while returning raw bearer token", async () => {
+    const res = await tokensRoute.POST(
+      new NextRequest("http://localhost:3000/api/tokens", {
+        method: "POST",
+      }),
+    );
+
+    const data = await res.json();
+    const insertedRow = insertValuesMock.mock.calls[0]?.[0];
+
     expect(res.status).toBe(201);
-
-    const rows = await testDb.db.select().from(apiTokens);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.scope).toBe("docs:read docs:write mcp:access");
+    expect(data.token).toMatch(/^bm_/);
+    expect(insertedRow.tokenHash).toBe(hashToken(data.token));
   });
 
-  it("rejects scopes outside the allowlist", async () => {
-    const req = new NextRequest("http://localhost:3000/api/tokens", {
-      method: "POST",
-      body: JSON.stringify({
-        name: "Bad scope token",
-        scope: ["docs:read", "admin:all"],
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
+  it("POST persists safe default scope when omitted", async () => {
+    validateBodyMock.mockResolvedValue([{ name: "Scoped token" }, null]);
 
-    const res = await POST(req);
+    await tokensRoute.POST(new NextRequest("http://localhost:3000/api/tokens", { method: "POST" }));
+    const insertedRow = insertValuesMock.mock.calls[0]?.[0];
+
+    expect(insertedRow.scope).toBe("documents:read");
+  });
+
+  it("POST persists requested scopes when valid", async () => {
+    validateBodyMock.mockResolvedValue([
+      { name: "Scoped token", scopes: ["documents:read", "mcp:invoke"] },
+      null,
+    ]);
+
+    await tokensRoute.POST(new NextRequest("http://localhost:3000/api/tokens", { method: "POST" }));
+    const insertedRow = insertValuesMock.mock.calls[0]?.[0];
+
+    expect(insertedRow.scope).toBe("documents:read mcp:invoke");
+  });
+
+  it("POST rejects requested scope outside allow-list", async () => {
+    const badResponse = new Response(JSON.stringify({ error: "Invalid scope" }), { status: 400 });
+    validateBodyMock.mockResolvedValue([null, badResponse]);
+
+    const res = await tokensRoute.POST(new NextRequest("http://localhost:3000/api/tokens", { method: "POST" }));
+
     expect(res.status).toBe(400);
-
-    const payload = await res.json();
-    expect(payload.error).toMatch(/Invalid token scope/);
-
-    const rows = await testDb.db.select().from(apiTokens);
-    expect(rows).toHaveLength(0);
+    expect(insertValuesMock).not.toHaveBeenCalled();
   });
 });

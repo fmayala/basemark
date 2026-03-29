@@ -8,7 +8,7 @@ import { createCollectionSchema } from "@/lib/validation";
 
 export async function GET(req: NextRequest) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:read"] });
   if (authError) return authError;
   const rows = await db.select().from(collections).orderBy(asc(collections.sortOrder));
   return NextResponse.json(rows);
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:write"] });
   if (authError) return authError;
 
   const [body, validationError] = await validateBody(req, createCollectionSchema);

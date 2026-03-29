@@ -5,34 +5,30 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDocuments } from "@/hooks/useDocuments";
 import { useCollections } from "@/hooks/useCollections";
+import {
+  MOBILE_SEARCH_PARAM,
+  buildCloseSearchHref,
+  buildOpenSearchHref,
+} from "./mobile-navigation-state";
 import MobileSearch from "./MobileSearch";
 import MobileEditor from "./MobileEditor";
 import { MobileNotesList } from "./MobileNotesList";
-import { deriveMobileScreen } from "./mobile-route-state";
+
+type Screen = "list" | "editor" | "search";
 
 export default function MobileShell() {
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const { documents, createDocument, deleteDocument } = useDocuments();
   const { collections } = useCollections();
 
-  const { screen, activeDocId } = deriveMobileScreen(pathname, searchParams.get("view"));
-
-  const pushWithView = useCallback(
-    (view: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (view) {
-        params.set("view", view);
-      } else {
-        params.delete("view");
-      }
-
-      const nextQuery = params.toString();
-      router.push(nextQuery ? `${pathname}?${nextQuery}` : pathname);
-    },
-    [pathname, router, searchParams],
-  );
+  const activeDocId = pathname.startsWith("/doc/") ? pathname.slice(5) : null;
+  const screen: Screen = searchParams.get(MOBILE_SEARCH_PARAM) === "1"
+    ? "search"
+    : activeDocId
+      ? "editor"
+      : "list";
 
   const onOpenDoc = useCallback((id: string) => {
     router.push(`/doc/${id}`);
@@ -43,12 +39,12 @@ export default function MobileShell() {
   }, [router]);
 
   const onOpenSearch = useCallback(() => {
-    pushWithView("search");
-  }, [pushWithView]);
+    router.push(buildOpenSearchHref({ pathname, searchParams }));
+  }, [pathname, router, searchParams]);
 
   const onCloseSearch = useCallback(() => {
-    pushWithView(null);
-  }, [pushWithView]);
+    router.replace(buildCloseSearchHref({ pathname, searchParams }));
+  }, [pathname, router, searchParams]);
 
   const onNewDoc = useCallback(async () => {
     const doc = await createDocument({ title: "Untitled" });

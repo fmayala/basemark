@@ -1,43 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, dbReady } from "@/lib/db";
-import { documentPermissions, documents } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { dbReady } from "@/lib/db";
 import { requireAuth, validateBody } from "@/lib/api-helpers";
 import { nanoid } from "nanoid";
 import { createPermissionSchema } from "@/lib/validation";
+import { getDocumentRecordById } from "@/domain/repos/documents-repo";
+import { listPermissionsForDocument, upsertPermission } from "@/domain/repos/permissions-repo";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, { params }: Params) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:read"] });
   if (authError) return authError;
 
   const { id } = await params;
 
-  // Verify document exists
-  const [doc] = await db.select().from(documents).where(eq(documents.id, id));
+  const doc = await getDocumentRecordById(id);
   if (!doc) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const perms = await db
-    .select()
-    .from(documentPermissions)
-    .where(eq(documentPermissions.documentId, id));
+  const perms = await listPermissionsForDocument(id);
 
   return NextResponse.json(perms);
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:write"] });
   if (authError) return authError;
 
   const { id } = await params;
 
-  // Verify document exists
-  const [doc] = await db.select().from(documents).where(eq(documents.id, id));
+  const doc = await getDocumentRecordById(id);
   if (!doc) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -53,27 +48,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     createdAt: Math.floor(Date.now() / 1000),
   };
 
-  await db
-    .insert(documentPermissions)
-    .values(perm)
-    .onConflictDoUpdate({
-      target: [documentPermissions.documentId, documentPermissions.email],
-      set: {
-        role: perm.role,
-        createdAt: perm.createdAt,
-      },
-    });
-
-  const saved = await db
-    .select()
-    .from(documentPermissions)
-    .where(
-      and(
-        eq(documentPermissions.documentId, id),
-        eq(documentPermissions.email, body.email),
-      ),
-    )
-    .get();
+  const saved = await upsertPermission(perm);
 
   if (!saved) {
     return NextResponse.json({ error: "Failed to save permission" }, { status: 500 });

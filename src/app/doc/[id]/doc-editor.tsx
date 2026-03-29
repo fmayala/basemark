@@ -4,10 +4,11 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import DocTitle from "@/components/editor/DocTitle";
 import Editor from "@/components/editor/Editor";
 import {
-  clearPendingSync,
-  readPendingSync,
-  writePendingSync,
-} from "@/lib/client/pending-sync-outbox";
+  buildPendingSyncRecord,
+  clearSyncedField,
+  hasPendingFields,
+  type PendingSyncRecord,
+} from "@/lib/client/editor-sync-engine";
 
 const DOCUMENT_SYNC_EVENT = "outline:document-sync";
 
@@ -50,8 +51,7 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingTitleRef = useRef<string | null>(null);
-  const pendingContentRef = useRef<string | null>(null);
+  const pendingSyncRef = useRef<PendingSyncRecord>({ title: null, content: null });
   const titleRequestIdRef = useRef(0);
   const contentRequestIdRef = useRef(0);
   const titleAbortRef = useRef<AbortController | null>(null);
@@ -59,67 +59,32 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
   const mountedRef = useRef(true);
   const inFlightSavesRef = useRef(0);
 
-  const dispatchSaveStatus = useCallback((status: "saving" | "saved" | "error", message?: string) => {
-    window.dispatchEvent(new CustomEvent("basemark:save-status", { detail: { status, message } }));
-  }, []);
-
-  const hasPersistedUnsent = useCallback(() => {
-    const pending = readPendingSync(id);
-    return Boolean(pending?.pendingTitle !== undefined || pending?.pendingContent !== undefined);
-  }, [id]);
-
-  const publishSaveState = useCallback(
-    (errorMessage: string | null = null) => {
-      const hasInFlight = inFlightSavesRef.current > 0;
-      const hasUnsent =
-        hasPersistedUnsent() ||
-        pendingTitleRef.current !== null ||
-        pendingContentRef.current !== null;
-
-      setIsSaving(hasInFlight);
-
-      if (hasInFlight) {
-        setSaveError(null);
-        dispatchSaveStatus("saving");
-        return;
-      }
-
-      if (errorMessage) {
-        setSaveError(errorMessage);
-        dispatchSaveStatus("error", errorMessage);
-        return;
-      }
-
-      if (hasUnsent) {
-        const message = "Unsent changes are queued locally. Reopen this document to retry sync.";
-        setSaveError(message);
-        dispatchSaveStatus("error", message);
-        return;
-      }
-
-      setSaveError(null);
-      dispatchSaveStatus("saved");
-    },
-    [dispatchSaveStatus, hasPersistedUnsent],
-  );
-
   useEffect(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
 
+  const dispatchSaveStatus = useCallback((status: "saving" | "saved" | "error", message?: string) => {
+    window.dispatchEvent(new CustomEvent("basemark:save-status", { detail: { status, message } }));
+  }, []);
+
   const beginSave = useCallback(() => {
     inFlightSavesRef.current += 1;
     if (!mountedRef.current) return;
-    publishSaveState();
-  }, [publishSaveState]);
+    setIsSaving(true);
+    setSaveError(null);
+    dispatchSaveStatus("saving");
+  }, [dispatchSaveStatus]);
 
   const endSave = useCallback(() => {
     inFlightSavesRef.current = Math.max(0, inFlightSavesRef.current - 1);
     if (!mountedRef.current) return;
-    publishSaveState();
-  }, [publishSaveState]);
+    if (inFlightSavesRef.current === 0) {
+      setIsSaving(false);
+      dispatchSaveStatus("saved");
+    }
+  }, [dispatchSaveStatus]);
 
   // Dispatch initial sync so sidebar stays up-to-date
   useEffect(() => {
@@ -171,30 +136,17 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
           title: value,
           ...(typeof data?.updatedAt === "number" ? { updatedAt: data.updatedAt } : {}),
         });
-
-        const current = readPendingSync(id);
-        if (current) {
-          writePendingSync({
-            ...current,
-            pendingTitle: undefined,
-            clientUpdatedAt: Date.now(),
-            lastError: undefined,
-          });
-          const next = readPendingSync(id);
-          if (next?.pendingTitle === undefined && next?.pendingContent === undefined) {
-            clearPendingSync(id);
-          }
-        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (requestId !== titleRequestIdRef.current) return;
         if (!mountedRef.current) return;
-        publishSaveState("Failed to save changes. Your latest edits are still local.");
+        setSaveError("Failed to save changes. Your latest edits are still local.");
+        dispatchSaveStatus("error", "Save failed — edits are local");
       } finally {
         endSave();
       }
     },
-    [beginSave, endSave, id, publishSaveState],
+    [beginSave, endSave, id],
   );
 
   const persistContent = useCallback(
@@ -230,52 +182,18 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
           content: value,
           ...(typeof data?.updatedAt === "number" ? { updatedAt: data.updatedAt } : {}),
         });
-
-        const current = readPendingSync(id);
-        if (current) {
-          writePendingSync({
-            ...current,
-            pendingContent: undefined,
-            clientUpdatedAt: Date.now(),
-            lastError: undefined,
-          });
-          const next = readPendingSync(id);
-          if (next?.pendingTitle === undefined && next?.pendingContent === undefined) {
-            clearPendingSync(id);
-          }
-        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (requestId !== contentRequestIdRef.current) return;
         if (!mountedRef.current) return;
-        publishSaveState("Failed to save changes. Your latest edits are still local.");
+        setSaveError("Failed to save changes. Your latest edits are still local.");
+        dispatchSaveStatus("error", "Save failed — edits are local");
       } finally {
         endSave();
       }
     },
-    [beginSave, endSave, id, publishSaveState],
+    [beginSave, endSave, id],
   );
-
-  const replayPendingSync = useCallback(() => {
-    const pending = readPendingSync(id);
-    if (!pending) return;
-
-    if (pending.pendingTitle !== undefined) {
-      setTitle(pending.pendingTitle);
-      pendingTitleRef.current = pending.pendingTitle;
-      void persistTitle(pending.pendingTitle, { flush: true });
-    }
-    if (pending.pendingContent !== undefined) {
-      setContent(pending.pendingContent);
-      pendingContentRef.current = pending.pendingContent;
-      void persistContent(pending.pendingContent, { flush: true });
-    }
-  }, [id, persistContent, persistTitle]);
-
-  useEffect(() => {
-    replayPendingSync();
-    publishSaveState();
-  }, [publishSaveState, replayPendingSync]);
 
   const flushPendingSaves = useCallback(() => {
     if (titleDebounceRef.current) {
@@ -287,53 +205,37 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
       debounceRef.current = null;
     }
 
-    const pendingTitle = pendingTitleRef.current;
-    const pendingContent = pendingContentRef.current;
-    pendingTitleRef.current = null;
-    pendingContentRef.current = null;
-
-    if (pendingTitle !== null) {
-      void persistTitle(pendingTitle, { flush: true });
+    const pendingRecord = buildPendingSyncRecord(pendingSyncRef.current);
+    pendingSyncRef.current = { title: null, content: null };
+    if (!hasPendingFields(pendingRecord)) {
+      return;
     }
-    if (pendingContent !== null) {
-      void persistContent(pendingContent, { flush: true });
+
+    if (pendingRecord.title !== undefined) {
+      void persistTitle(pendingRecord.title, { flush: true });
+    }
+    if (pendingRecord.content !== undefined) {
+      void persistContent(pendingRecord.content, { flush: true });
     }
   }, [persistContent, persistTitle]);
 
   // Save title with 300ms debounce
-  // Sync browser tab title
-  useEffect(() => {
-    document.title = title ? `${title} - Basemark` : "Basemark";
-    return () => { document.title = "Basemark"; };
-  }, [title]);
-
   const handleTitleChange = useCallback(
     (newTitle: string) => {
       setTitle(newTitle);
       dispatchDocumentSync({ id, title: newTitle });
 
-      const current = readPendingSync(id);
-      writePendingSync({
-        docId: id,
-        pendingTitle: newTitle,
-        pendingContent: pendingContentRef.current ?? current?.pendingContent,
-        clientUpdatedAt: Date.now(),
-        retryCount: current?.retryCount,
-        lastError: current?.lastError,
-      });
-      publishSaveState();
-
-      pendingTitleRef.current = newTitle;
+      pendingSyncRef.current = { ...pendingSyncRef.current, title: newTitle };
       if (titleDebounceRef.current) clearTimeout(titleDebounceRef.current);
       titleDebounceRef.current = setTimeout(() => {
-        const value = pendingTitleRef.current;
-        pendingTitleRef.current = null;
-        if (value !== null) {
-          void persistTitle(value);
+        const pendingRecord = buildPendingSyncRecord(pendingSyncRef.current);
+        pendingSyncRef.current = clearSyncedField(pendingSyncRef.current, "title");
+        if (pendingRecord.title !== undefined) {
+          void persistTitle(pendingRecord.title);
         }
       }, 300);
     },
-    [id, persistTitle, publishSaveState],
+    [id, persistTitle],
   );
 
   // Save content with 500ms debounce
@@ -341,28 +243,17 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
     (newContent: string) => {
       setContent(newContent);
 
-      const current = readPendingSync(id);
-      writePendingSync({
-        docId: id,
-        pendingTitle: pendingTitleRef.current ?? current?.pendingTitle,
-        pendingContent: newContent,
-        clientUpdatedAt: Date.now(),
-        retryCount: current?.retryCount,
-        lastError: current?.lastError,
-      });
-      publishSaveState();
-
-      pendingContentRef.current = newContent;
+      pendingSyncRef.current = { ...pendingSyncRef.current, content: newContent };
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        const value = pendingContentRef.current;
-        pendingContentRef.current = null;
-        if (value !== null) {
-          void persistContent(value);
+        const pendingRecord = buildPendingSyncRecord(pendingSyncRef.current);
+        pendingSyncRef.current = clearSyncedField(pendingSyncRef.current, "content");
+        if (pendingRecord.content !== undefined) {
+          void persistContent(pendingRecord.content);
         }
       }, 500);
     },
-    [id, persistContent, publishSaveState],
+    [persistContent],
   );
 
   // Flush pending changes when tab is backgrounded.
@@ -370,17 +261,14 @@ export default function DocEditor({ initialDoc, initialCollectionName }: DocEdit
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         flushPendingSaves();
-        return;
       }
-
-      replayPendingSync();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [flushPendingSaves, replayPendingSync]);
+  }, [flushPendingSaves]);
 
   // Flush pending debounced writes on unmount.
   useEffect(() => {

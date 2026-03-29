@@ -8,7 +8,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   await dbReady;
-  const authError = await requireAuth(req, { allowToken: false });
+  const authError = await requireAuth(req, { allowBearer: false });
   if (authError) return authError;
 
   const { id } = await params;

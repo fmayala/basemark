@@ -3,9 +3,10 @@ import { NextRequest } from "next/server";
 import { createTestDb } from "@/test/setup";
 
 let testDb = createTestDb();
+const requireAuthMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-helpers", () => ({
-  requireAuth: () => null,
+  requireAuth: requireAuthMock,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -38,6 +39,8 @@ const { GET } = await import("@/app/api/search/route");
 describe("GET /api/search", () => {
   beforeEach(() => {
     testDb = createTestDb();
+    requireAuthMock.mockReset();
+    requireAuthMock.mockResolvedValue(null);
   });
 
   it("returns empty array when query is missing", async () => {
@@ -87,5 +90,13 @@ describe("GET /api/search", () => {
     expect(data).toHaveLength(1);
     expect(data[0].id).toBe("doc-1");
     expect(data[0].title).toBe("Architecture Notes");
+  });
+
+  it("calls requireAuth with documents:read", async () => {
+    const req = new NextRequest("http://localhost:3000/api/search?q=notes");
+
+    await GET(req);
+
+    expect(requireAuthMock).toHaveBeenCalledWith(req, { requiredScopes: ["documents:read"] });
   });
 });
