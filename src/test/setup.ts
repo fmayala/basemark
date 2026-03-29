@@ -48,6 +48,17 @@ export function createTestDb() {
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'documents:read',
+      revoked_at INTEGER,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      last_used_at INTEGER
+    );
+
     CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
       doc_id UNINDEXED,
       title,

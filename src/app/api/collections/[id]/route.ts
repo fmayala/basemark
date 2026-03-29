@@ -9,7 +9,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, { params }: Params) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:read"] });
   if (authError) return authError;
 
   const { id } = await params;
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 export async function PUT(req: NextRequest, { params }: Params) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:write"] });
   if (authError) return authError;
 
   const { id } = await params;
@@ -58,7 +58,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   await dbReady;
-  const authError = await requireAuth(req);
+  const authError = await requireAuth(req, { requiredScopes: ["documents:write"] });
   if (authError) return authError;
 
   const { id } = await params;

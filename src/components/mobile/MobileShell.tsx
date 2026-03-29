@@ -1,65 +1,57 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDocuments } from "@/hooks/useDocuments";
 import { useCollections } from "@/hooks/useCollections";
+import {
+  MOBILE_SEARCH_PARAM,
+  buildCloseSearchHref,
+  buildOpenSearchHref,
+} from "./mobile-navigation-state";
 import MobileSearch from "./MobileSearch";
 import MobileEditor from "./MobileEditor";
 import { MobileNotesList } from "./MobileNotesList";
 
 type Screen = "list" | "editor" | "search";
 
-function getInitialState(pathname: string): { screen: Screen; activeDocId: string | null } {
-  if (pathname.startsWith("/doc/")) {
-    return { screen: "editor", activeDocId: pathname.slice(5) };
-  }
-  return { screen: "list", activeDocId: null };
-}
-
 export default function MobileShell() {
+  const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { documents, createDocument, deleteDocument } = useDocuments();
   const { collections } = useCollections();
 
-  const [screen, setScreen] = useState<Screen>(() => getInitialState(pathname).screen);
-  const [activeDocId, setActiveDocId] = useState<string | null>(
-    () => getInitialState(pathname).activeDocId,
-  );
-
-  // Android back button / browser back gesture support
-  useEffect(() => {
-    if (screen === "editor" || screen === "search") {
-      window.history.pushState({ screen }, "");
-      const handler = () => {
-        setScreen("list");
-      };
-      window.addEventListener("popstate", handler);
-      return () => window.removeEventListener("popstate", handler);
-    }
-  }, [screen]);
+  const activeDocId = pathname.startsWith("/doc/") ? pathname.slice(5) : null;
+  const screen: Screen = searchParams.get(MOBILE_SEARCH_PARAM) === "1"
+    ? "search"
+    : activeDocId
+      ? "editor"
+      : "list";
 
   const onOpenDoc = useCallback((id: string) => {
-    setActiveDocId(id);
-    setScreen("editor");
-  }, []);
+    router.push(`/doc/${id}`);
+  }, [router]);
 
   const onBack = useCallback(() => {
-    setScreen("list");
-  }, []);
+    router.push("/");
+  }, [router]);
 
   const onOpenSearch = useCallback(() => {
-    setScreen("search");
-  }, []);
+    router.push(buildOpenSearchHref({ pathname, searchParams }));
+  }, [pathname, router, searchParams]);
+
+  const onCloseSearch = useCallback(() => {
+    router.replace(buildCloseSearchHref({ pathname, searchParams }));
+  }, [pathname, router, searchParams]);
 
   const onNewDoc = useCallback(async () => {
     const doc = await createDocument({ title: "Untitled" });
     if (doc) {
-      setActiveDocId(doc.id);
-      setScreen("editor");
+      router.push(`/doc/${doc.id}`);
     }
-  }, [createDocument]);
+  }, [createDocument, router]);
 
   const onDeleteDoc = useCallback(
     async (id: string) => {
@@ -122,7 +114,7 @@ export default function MobileShell() {
             >
               <MobileSearch
                 onSelectResult={onOpenDoc}
-                onClose={() => setScreen("list")}
+                onClose={onCloseSearch}
               />
             </motion.div>
           )}

@@ -2,36 +2,54 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { z } from "zod";
 import { isOwnerEmail } from "@/lib/authz";
-import { db, dbReady } from "@/lib/db";
-import { apiTokens } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { createTokensService } from "@/domain/services/tokens-service";
+import { parseBearerToken } from "@/lib/bearer-token";
 
 // Dev bypass: skip auth in development when DEV_BYPASS_AUTH=1
 const isDevBypass = process.env.NODE_ENV === "development" && process.env.DEV_BYPASS_AUTH === "1";
+const tokensService = createTokensService();
 
-async function validateBearerToken(req: NextRequest): Promise<boolean> {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer bm_")) return false;
-  const token = authHeader.slice(7); // "Bearer " is 7 chars
-  await dbReady;
-  const row = await db.select().from(apiTokens).where(eq(apiTokens.token, token)).get();
-  if (!row) return false;
-  // Update last_used_at fire-and-forget
-  db.update(apiTokens).set({ lastUsedAt: Math.floor(Date.now() / 1000) }).where(eq(apiTokens.id, row.id)).run();
-  return true;
+type BearerValidationResult = "ok" | "invalid" | "scope_denied";
+
+type RequireAuthOptions = {
+  allowBearer?: boolean;
+  requiredScopes?: string[];
+};
+
+async function validateBearerToken(req: NextRequest, requiredScopes: string[]): Promise<BearerValidationResult> {
+  const token = parseBearerToken(req.headers.get("authorization"));
+  if (!token) return "invalid";
+  const result = await tokensService.validateBearer(token, requiredScopes);
+  return result.status;
 }
 
 export async function isApiAuthenticated(req?: NextRequest): Promise<boolean> {
   if (isDevBypass) return true;
-  if (req && await validateBearerToken(req)) return true;
+  if (req) {
+    const bearerResult = await validateBearerToken(req, []);
+    if (bearerResult === "ok") return true;
+  }
   const session = await auth();
   if (!session?.user) return false;
   return isOwnerEmail(session.user.email);
 }
 
-export async function requireAuth(req: NextRequest): Promise<NextResponse | null> {
+export async function requireAuth(
+  req: NextRequest,
+  options: RequireAuthOptions = {},
+): Promise<NextResponse | null> {
   if (isDevBypass) return null;
-  if (await validateBearerToken(req)) return null;
+  const allowBearer = options.allowBearer ?? options.requiredScopes !== undefined;
+  const requiredScopes = options.requiredScopes ?? [];
+
+  if (allowBearer) {
+    const bearerResult = await validateBearerToken(req, requiredScopes);
+    if (bearerResult === "ok") return null;
+    if (bearerResult === "scope_denied") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

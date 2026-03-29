@@ -1,31 +1,47 @@
 import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { db, dbReady } from "@/lib/db";
-import { documents, collections, documentPermissions, apiTokens } from "@/lib/db/schema";
+import { documents, collections } from "@/lib/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { searchDocuments } from "@/lib/db/fts";
-import { syncDocumentFTS, deleteDocumentFTS } from "@/lib/db/fts";
 import { NextRequest, NextResponse } from "next/server";
+import { createDocumentsService } from "@/domain/services/documents-service";
+import { createSharingService } from "@/domain/services/sharing-service";
+import { createTokensService } from "@/domain/services/tokens-service";
+import { searchDocumentIndex } from "@/domain/repos/fts-repo";
+import { createSearchIndexService } from "@/domain/services/search-index-service";
+import { parseBearerToken } from "@/lib/bearer-token";
 
-async function validateBearerToken(req: Request): Promise<boolean> {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer bm_")) return false;
-  const token = authHeader.slice(7); // "Bearer " is 7 chars
-  await dbReady;
-  const row = await db
-    .select()
-    .from(apiTokens)
-    .where(eq(apiTokens.token, token))
-    .get();
-  if (!row) return false;
-  // Update last_used_at fire-and-forget
-  db.update(apiTokens)
-    .set({ lastUsedAt: Math.floor(Date.now() / 1000) })
-    .where(eq(apiTokens.id, row.id))
-    .run();
-  return true;
+const searchIndexService = createSearchIndexService();
+
+function logDegradedIndexStatus(
+  operation: "sync_document" | "delete_document",
+  documentId: string,
+  result: Awaited<ReturnType<typeof searchIndexService.syncDocument>>,
+) {
+  if (result.status !== "degraded") return;
+  console.warn("search_index_degraded", {
+    operation,
+    documentId,
+    reason: result.reason,
+  });
 }
+
+const documentsService = createDocumentsService({
+  searchIndex: {
+    syncDocument: async (documentId) => {
+      const result = await searchIndexService.syncDocument(documentId);
+      logDegradedIndexStatus("sync_document", documentId, result);
+    },
+    removeDocument: async (documentId) => {
+      const result = await searchIndexService.deleteDocument(documentId);
+      logDegradedIndexStatus("delete_document", documentId, result);
+    },
+  },
+});
+
+const sharingService = createSharingService();
+const tokensService = createTokensService();
 
 const mcpHandler = createMcpHandler(
   (server) => {
@@ -40,7 +56,7 @@ const mcpHandler = createMcpHandler(
       },
       async ({ query }) => {
         await dbReady;
-        const results = await searchDocuments(query);
+        const results = await searchDocumentIndex(query);
         return {
           content: [{ type: "text", text: JSON.stringify(results) }],
         };
@@ -88,23 +104,12 @@ const mcpHandler = createMcpHandler(
       },
       async ({ title, content, collectionId }) => {
         await dbReady;
-        const id = nanoid();
-        const now = Math.floor(Date.now() / 1000);
-
-        const [doc] = await db
-          .insert(documents)
-          .values({
-            id,
-            title: title ?? "Untitled",
-            content: content ?? "",
-            collectionId: collectionId ?? null,
-            sortOrder: 0,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning();
-
-        await syncDocumentFTS(id, doc.title);
+        const doc = await documentsService.createDocument({
+          title,
+          content,
+          collectionId,
+          sortOrder: 0,
+        });
 
         return {
           content: [{ type: "text", text: JSON.stringify(doc) }],
@@ -125,39 +130,7 @@ const mcpHandler = createMcpHandler(
       },
       async ({ id, title, content }) => {
         await dbReady;
-        const updates: Record<string, unknown> = {};
-        const now = Math.floor(Date.now() / 1000);
-        if (title !== undefined) {
-          updates.title = title;
-          updates.updatedAt = now;
-        }
-        if (content !== undefined) {
-          updates.content = content;
-          updates.updatedAt = now;
-        }
-
-        if (Object.keys(updates).length === 0) {
-          const doc = await db
-            .select()
-            .from(documents)
-            .where(eq(documents.id, id))
-            .get();
-          if (!doc) {
-            return {
-              content: [{ type: "text", text: JSON.stringify({ error: "Not found" }) }],
-              isError: true,
-            };
-          }
-          return {
-            content: [{ type: "text", text: JSON.stringify(doc) }],
-          };
-        }
-
-        const [doc] = await db
-          .update(documents)
-          .set(updates)
-          .where(eq(documents.id, id))
-          .returning();
+        const doc = await documentsService.updateDocument(id, { title, content });
 
         if (!doc) {
           return {
@@ -165,8 +138,6 @@ const mcpHandler = createMcpHandler(
             isError: true,
           };
         }
-
-        await syncDocumentFTS(id, doc.title);
 
         return {
           content: [{ type: "text", text: JSON.stringify(doc) }],
@@ -185,12 +156,8 @@ const mcpHandler = createMcpHandler(
       },
       async ({ id }) => {
         await dbReady;
-        await deleteDocumentFTS(id);
-        const [doc] = await db
-          .delete(documents)
-          .where(eq(documents.id, id))
-          .returning();
-        if (!doc) {
+        const result = await documentsService.deleteDocument(id);
+        if (!result.success) {
           return {
             content: [{ type: "text", text: JSON.stringify({ error: "Not found" }) }],
             isError: true,
@@ -316,55 +283,23 @@ const mcpHandler = createMcpHandler(
       },
       async ({ id, isPublic, inviteEmail }) => {
         await dbReady;
-        let doc = await db
-          .select()
-          .from(documents)
-          .where(eq(documents.id, id))
-          .get();
-        if (!doc) {
+        const result = await sharingService.shareDocument({
+          documentId: id,
+          isPublic,
+          inviteEmail,
+        });
+        if (!result.ok) {
           return {
             content: [{ type: "text", text: JSON.stringify({ error: "Not found" }) }],
             isError: true,
           };
         }
 
-        // Update isPublic if provided
-        if (isPublic !== undefined) {
-          const [updated] = await db
-            .update(documents)
-            .set({ isPublic })
-            .where(eq(documents.id, id))
-            .returning();
-          doc = updated;
-        }
-
-        // Add permission for invited email if provided
-        let permission = null;
-        if (inviteEmail) {
-          const permId = nanoid();
-          const now = Math.floor(Date.now() / 1000);
-          const [perm] = await db
-            .insert(documentPermissions)
-            .values({
-              id: permId,
-              documentId: id,
-              email: inviteEmail,
-              role: "viewer",
-              createdAt: now,
-            })
-            .onConflictDoUpdate({
-              target: [documentPermissions.documentId, documentPermissions.email],
-              set: { role: "viewer" },
-            })
-            .returning();
-          permission = perm;
-        }
-
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify({ doc, permission }),
+              text: JSON.stringify({ doc: result.document, permission: result.permission }),
             },
           ],
         };
@@ -385,14 +320,27 @@ async function authMiddleware(req: Request): Promise<Response | null> {
     process.env.DEV_BYPASS_AUTH === "1";
   if (isDevBypass) return null;
 
-  const isValid = await validateBearerToken(req);
-  if (!isValid) {
+  const token = parseBearerToken(req.headers.get("authorization"));
+  if (!token) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
-  return null;
+
+  const result = await tokensService.validateBearer(token, ["mcp:invoke"]);
+  if (result.status === "ok") return null;
+  if (result.status === "scope_denied") {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return new Response(JSON.stringify({ error: "Unauthorized" }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export async function GET(req: NextRequest) {

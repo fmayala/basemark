@@ -6,6 +6,12 @@ import Editor from "@/components/editor/Editor";
 import MobileFormatToolbar from "@/components/mobile/MobileFormatToolbar";
 import ShareDialog from "@/components/share/ShareDialog";
 import { Button } from "@/components/ui/button";
+import {
+  buildPendingSyncRecord,
+  clearSyncedField,
+  hasPendingFields,
+  type PendingSyncRecord,
+} from "@/lib/client/editor-sync-engine";
 
 const DOCUMENT_SYNC_EVENT = "outline:document-sync";
 
@@ -48,8 +54,7 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingTitleRef = useRef<string | null>(null);
-  const pendingContentRef = useRef<string | null>(null);
+  const pendingSyncRef = useRef<PendingSyncRecord>({ title: null, content: null });
   const titleRequestIdRef = useRef(0);
   const contentRequestIdRef = useRef(0);
   const titleAbortRef = useRef<AbortController | null>(null);
@@ -178,16 +183,17 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
       debounceRef.current = null;
     }
 
-    const pendingTitle = pendingTitleRef.current;
-    const pendingContent = pendingContentRef.current;
-    pendingTitleRef.current = null;
-    pendingContentRef.current = null;
-
-    if (pendingTitle !== null) {
-      void persistTitle(pendingTitle, { flush: true });
+    const pendingRecord = buildPendingSyncRecord(pendingSyncRef.current);
+    pendingSyncRef.current = { title: null, content: null };
+    if (!hasPendingFields(pendingRecord)) {
+      return;
     }
-    if (pendingContent !== null) {
-      void persistContent(pendingContent, { flush: true });
+
+    if (pendingRecord.title !== undefined) {
+      void persistTitle(pendingRecord.title, { flush: true });
+    }
+    if (pendingRecord.content !== undefined) {
+      void persistContent(pendingRecord.content, { flush: true });
     }
   }, [persistContent, persistTitle]);
 
@@ -228,13 +234,13 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
     (newTitle: string) => {
       setTitle(newTitle);
 
-      pendingTitleRef.current = newTitle;
+      pendingSyncRef.current = { ...pendingSyncRef.current, title: newTitle };
       if (titleDebounceRef.current) clearTimeout(titleDebounceRef.current);
       titleDebounceRef.current = setTimeout(() => {
-        const value = pendingTitleRef.current;
-        pendingTitleRef.current = null;
-        if (value !== null) {
-          void persistTitle(value);
+        const pendingRecord = buildPendingSyncRecord(pendingSyncRef.current);
+        pendingSyncRef.current = clearSyncedField(pendingSyncRef.current, "title");
+        if (pendingRecord.title !== undefined) {
+          void persistTitle(pendingRecord.title);
         }
       }, 300);
     },
@@ -246,13 +252,13 @@ export default function MobileEditor({ docId, onBack, onShare }: MobileEditorPro
     (newContent: string) => {
       setContent(newContent);
 
-      pendingContentRef.current = newContent;
+      pendingSyncRef.current = { ...pendingSyncRef.current, content: newContent };
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        const value = pendingContentRef.current;
-        pendingContentRef.current = null;
-        if (value !== null) {
-          void persistContent(value);
+        const pendingRecord = buildPendingSyncRecord(pendingSyncRef.current);
+        pendingSyncRef.current = clearSyncedField(pendingSyncRef.current, "content");
+        if (pendingRecord.content !== undefined) {
+          void persistContent(pendingRecord.content);
         }
       }, 500);
     },

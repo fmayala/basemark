@@ -5,9 +5,10 @@ import { documents } from "@/lib/db/schema";
 import { nanoid } from "nanoid";
 
 let testDb = createTestDb();
+const requireAuthMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api-helpers", () => ({
-  requireAuth: () => null,
+  requireAuth: requireAuthMock,
   validateBody: vi.fn().mockImplementation(async (req: NextRequest, schema: any) => {
     const body = await req.json();
     const result = schema.safeParse(body);
@@ -59,6 +60,8 @@ async function createDoc(id: string) {
 describe("POST /api/share", () => {
   beforeEach(() => {
     testDb = createTestDb();
+    requireAuthMock.mockReset();
+    requireAuthMock.mockResolvedValue(null);
   });
 
   it("rejects share without documentId (400)", async () => {
@@ -117,5 +120,17 @@ describe("POST /api/share", () => {
 
     expect(res.status).toBe(400);
     expect(data.error).toMatch(/future/i);
+  });
+
+  it("calls requireAuth with documents:write", async () => {
+    const req = new NextRequest("http://localhost:3000/api/share", {
+      method: "POST",
+      body: JSON.stringify({ documentId: "doc-1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    await POST(req);
+
+    expect(requireAuthMock).toHaveBeenCalledWith(req, { requiredScopes: ["documents:write"] });
   });
 });

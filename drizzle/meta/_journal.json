@@ -36,6 +36,13 @@
       "when": 1774681345199,
       "tag": "0004_polite_master_mold",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1774818000000,
+      "tag": "0005_token_policy_columns",
+      "breakpoints": true
     }
   ]
 }
