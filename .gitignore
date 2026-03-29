@@ -9,15 +9,7 @@ tsconfig.tsbuildinfo
 .vercel
 .superpowers/
 .worktrees/
-docs/*
-!docs/superpowers/
-docs/superpowers/*
-!docs/superpowers/specs/
-!docs/superpowers/plans/
-docs/superpowers/specs/*
-docs/superpowers/plans/*
-!docs/superpowers/specs/*.md
-!docs/superpowers/plans/*.md
+docs/
 .impeccable.md
 CLAUDE.md
 check-domains.ts
