@@ -63,6 +63,30 @@ describe("documents-repo", () => {
     expect(deleted?.id).toBe("doc-3");
   });
 
+  it("enforces baseUpdatedAt precondition when provided", async () => {
+    await createDocumentRecord({
+      id: "doc-5",
+      title: "Before",
+      content: "",
+      sortOrder: 0,
+      now: 100,
+    });
+
+    const conflicted = await updateDocumentRecord(
+      "doc-5",
+      { title: "Stale", updatedAt: 200 },
+      { baseUpdatedAt: 99 },
+    );
+    expect(conflicted).toBeNull();
+
+    const updated = await updateDocumentRecord(
+      "doc-5",
+      { title: "After", updatedAt: 201 },
+      { baseUpdatedAt: 100 },
+    );
+    expect(updated?.title).toBe("After");
+  });
+
   it("upserts document permissions on document+email", async () => {
     await createDocumentRecord({
       id: "doc-4",

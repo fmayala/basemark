@@ -128,8 +128,40 @@ describe("documents-service", () => {
       title: "After",
       content: "Body",
       updatedAt: now,
-    });
+    }, { baseUpdatedAt: undefined });
     expect(searchIndex.syncDocument).toHaveBeenCalledWith("doc-1");
+  });
+
+  it("forwards baseUpdatedAt precondition to repository updates", async () => {
+    const updatedDoc: DocRecord = {
+      id: "doc-1",
+      title: "After",
+      content: "Body",
+      collectionId: null,
+      sortOrder: 0,
+      isPublic: false,
+      createdAt: now - 10,
+      updatedAt: now,
+    };
+    repo.updateDocumentRecord.mockResolvedValue(updatedDoc);
+
+    const service = createDocumentsService({
+      repo,
+      searchIndex,
+      generateId: () => "unused",
+      now: () => now,
+    });
+
+    await service.updateDocument("doc-1", {
+      title: "After",
+      baseUpdatedAt: 123,
+    });
+
+    expect(repo.updateDocumentRecord).toHaveBeenCalledWith(
+      "doc-1",
+      { title: "After", updatedAt: now },
+      { baseUpdatedAt: 123 },
+    );
   });
 
   it("deletes source record first then best-effort index removal", async () => {

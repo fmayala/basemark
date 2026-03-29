@@ -1,36 +1,53 @@
+import type { PendingSyncRecord } from "@/lib/client/pending-sync-outbox";
+
 export type PendingSyncField = "title" | "content";
 
-export type PendingSyncRecord = {
-  title: string | null;
-  content: string | null;
+type BuildPendingSyncRecordInput = {
+  docId: string;
+  field: PendingSyncField;
+  value: string;
+  current: PendingSyncRecord | null;
+  now?: number;
 };
 
-export type PendingSyncOutbox = Partial<Record<PendingSyncField, string>>;
+export function buildPendingSyncRecord(input: BuildPendingSyncRecordInput): PendingSyncRecord {
+  const clientUpdatedAt = input.now ?? Date.now();
 
-export function buildPendingSyncRecord(pending: PendingSyncRecord): PendingSyncOutbox {
-  const outbox: PendingSyncOutbox = {};
-
-  if (pending.title !== null) {
-    outbox.title = pending.title;
-  }
-  if (pending.content !== null) {
-    outbox.content = pending.content;
-  }
-
-  return outbox;
+  return {
+    docId: input.docId,
+    pendingTitle: input.field === "title" ? input.value : input.current?.pendingTitle,
+    pendingContent: input.field === "content" ? input.value : input.current?.pendingContent,
+    clientUpdatedAt,
+    retryCount: input.current?.retryCount,
+    lastError: undefined,
+  };
 }
 
 export function clearSyncedField(
-  pending: PendingSyncRecord,
+  current: PendingSyncRecord,
   field: PendingSyncField,
+  syncedValue: string,
+  now: number = Date.now(),
 ): PendingSyncRecord {
   if (field === "title") {
-    return { title: null, content: pending.content };
+    if (current.pendingTitle !== syncedValue) return current;
+    return {
+      ...current,
+      pendingTitle: undefined,
+      clientUpdatedAt: now,
+      lastError: undefined,
+    };
   }
 
-  return { title: pending.title, content: null };
+  if (current.pendingContent !== syncedValue) return current;
+  return {
+    ...current,
+    pendingContent: undefined,
+    clientUpdatedAt: now,
+    lastError: undefined,
+  };
 }
 
-export function hasPendingFields(outbox: PendingSyncOutbox | PendingSyncRecord): boolean {
-  return (outbox.title !== undefined && outbox.title !== null) || (outbox.content !== undefined && outbox.content !== null);
+export function hasPendingFields(record: PendingSyncRecord | null | undefined): boolean {
+  return record?.pendingTitle !== undefined || record?.pendingContent !== undefined;
 }

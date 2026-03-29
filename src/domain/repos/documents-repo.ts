@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 
 export type CreateDocumentRecordInput = {
   id: string;
@@ -17,6 +17,10 @@ export type UpdateDocumentRecordInput = Partial<
     "title" | "content" | "collectionId" | "isPublic" | "sortOrder" | "updatedAt"
   >
 >;
+
+export type UpdateDocumentRecordOptions = {
+  baseUpdatedAt?: number;
+};
 
 export async function listDocumentRecords(options: { includeContent: boolean }) {
   if (options.includeContent) {
@@ -64,11 +68,17 @@ export async function createDocumentRecord(input: CreateDocumentRecordInput) {
 export async function updateDocumentRecord(
   id: string,
   updates: UpdateDocumentRecordInput,
+  options: UpdateDocumentRecordOptions = {},
 ) {
+  const whereClause =
+    options.baseUpdatedAt === undefined
+      ? eq(documents.id, id)
+      : and(eq(documents.id, id), eq(documents.updatedAt, options.baseUpdatedAt));
+
   const [doc] = await db
     .update(documents)
     .set(updates)
-    .where(eq(documents.id, id))
+    .where(whereClause)
     .returning();
 
   return doc ?? null;

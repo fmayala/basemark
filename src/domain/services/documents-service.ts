@@ -41,6 +41,7 @@ type UpdateDocumentInput = {
   collectionId?: string | null;
   sortOrder?: number;
   isPublic?: boolean;
+  baseUpdatedAt?: number;
 };
 
 export function createDocumentsService(options: CreateDocumentsServiceOptions) {
@@ -97,7 +98,9 @@ export function createDocumentsService(options: CreateDocumentsServiceOptions) {
         return repo.getDocumentRecordById(id);
       }
 
-      const doc = await repo.updateDocumentRecord(id, updates);
+      const doc = await repo.updateDocumentRecord(id, updates, {
+        baseUpdatedAt: input.baseUpdatedAt,
+      });
       if (!doc) return null;
 
       await options.searchIndex.syncDocument(id);

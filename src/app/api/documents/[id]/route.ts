@@ -71,16 +71,26 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const [body, validationError] = await validateBody(req, updateDocumentSchema);
   if (validationError) return validationError;
-  const { title, content, collectionId, sortOrder, isPublic } = body;
+  const { title, content, collectionId, sortOrder, isPublic, baseUpdatedAt } = body;
   const doc = await documentsService.updateDocument(id, {
     title,
     content,
     collectionId,
     sortOrder,
     isPublic,
+    baseUpdatedAt,
   });
 
   if (!doc) {
+    if (baseUpdatedAt !== undefined) {
+      const current = await documentsService.getDocumentById(id);
+      if (current) {
+        return NextResponse.json(
+          { error: "Conflict", document: current },
+          { status: 409 },
+        );
+      }
+    }
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

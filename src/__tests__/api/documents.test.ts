@@ -211,3 +211,47 @@ describe("documents route auth scope wiring", () => {
     expect(requireAuthMock).toHaveBeenCalledWith(deleteReq, { requiredScopes: ["documents:write"] });
   });
 });
+
+describe("PUT /api/documents/[id] concurrency", () => {
+  beforeEach(() => {
+    testDb = createTestDb();
+    requireAuthMock.mockReset();
+    requireAuthMock.mockResolvedValue(null);
+  });
+
+  it("returns 409 with current document when baseUpdatedAt is stale", async () => {
+    const createReq = new NextRequest("http://localhost:3000/api/documents", {
+      method: "POST",
+      body: JSON.stringify({ title: "Before", content: "v1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const createRes = await POST(createReq);
+    const created = await createRes.json();
+
+    const firstUpdateReq = new NextRequest(`http://localhost:3000/api/documents/${created.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ title: "v2", baseUpdatedAt: created.updatedAt }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const firstUpdateRes = await putById(firstUpdateReq, {
+      params: Promise.resolve({ id: created.id }),
+    });
+    const firstUpdated = await firstUpdateRes.json();
+    expect(firstUpdateRes.status).toBe(200);
+
+    const staleUpdateReq = new NextRequest(`http://localhost:3000/api/documents/${created.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ content: "stale", baseUpdatedAt: created.updatedAt - 1 }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const staleUpdateRes = await putById(staleUpdateReq, {
+      params: Promise.resolve({ id: created.id }),
+    });
+    const stalePayload = await staleUpdateRes.json();
+
+    expect(staleUpdateRes.status).toBe(409);
+    expect(stalePayload.error).toBe("Conflict");
+    expect(stalePayload.document?.id).toBe(created.id);
+    expect(stalePayload.document?.updatedAt).toBe(firstUpdated.updatedAt);
+  });
+});

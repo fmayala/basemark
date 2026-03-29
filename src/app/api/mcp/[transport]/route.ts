@@ -11,6 +11,12 @@ import { createTokensService } from "@/domain/services/tokens-service";
 import { searchDocumentIndex } from "@/domain/repos/fts-repo";
 import { createSearchIndexService } from "@/domain/services/search-index-service";
 import { parseBearerToken } from "@/lib/bearer-token";
+import {
+  mcpCreateCollectionInputSchema,
+  mcpCreateDocInputSchema,
+  mcpShareInputSchema,
+  mcpUpdateDocInputSchema,
+} from "@/lib/mcp-constraints";
 
 const searchIndexService = createSearchIndexService();
 
@@ -96,11 +102,7 @@ const mcpHandler = createMcpHandler(
       "create_doc",
       {
         description: "Create a new document",
-        inputSchema: {
-          title: z.string().describe("Document title"),
-          content: z.string().optional().describe("Document content (Tiptap JSON or plain text)"),
-          collectionId: z.string().optional().describe("Collection ID to assign the document to"),
-        },
+        inputSchema: mcpCreateDocInputSchema.shape,
       },
       async ({ title, content, collectionId }) => {
         await dbReady;
@@ -122,11 +124,7 @@ const mcpHandler = createMcpHandler(
       "update_doc",
       {
         description: "Update an existing document",
-        inputSchema: {
-          id: z.string().describe("Document ID"),
-          title: z.string().optional().describe("New title"),
-          content: z.string().optional().describe("New content"),
-        },
+        inputSchema: mcpUpdateDocInputSchema.shape,
       },
       async ({ id, title, content }) => {
         await dbReady;
@@ -239,9 +237,7 @@ const mcpHandler = createMcpHandler(
       "create_collection",
       {
         description: "Create a new collection",
-        inputSchema: {
-          name: z.string().describe("Collection name"),
-        },
+        inputSchema: mcpCreateCollectionInputSchema.shape,
       },
       async ({ name }) => {
         await dbReady;
@@ -269,17 +265,7 @@ const mcpHandler = createMcpHandler(
       "share_doc",
       {
         description: "Share a document: make it public or invite a user by email",
-        inputSchema: {
-          id: z.string().describe("Document ID"),
-          isPublic: z
-            .boolean()
-            .optional()
-            .describe("Set document public visibility"),
-          inviteEmail: z
-            .string()
-            .optional()
-            .describe("Email address to invite as a viewer"),
-        },
+        inputSchema: mcpShareInputSchema.shape,
       },
       async ({ id, isPublic, inviteEmail }) => {
         await dbReady;

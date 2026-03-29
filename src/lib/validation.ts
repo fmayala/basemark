@@ -18,6 +18,7 @@ export const updateDocumentSchema = z.object({
   collectionId: z.string().nullable().optional(),
   sortOrder: z.number().optional(),
   isPublic: z.boolean().optional(),
+  baseUpdatedAt: z.number().int().nonnegative().optional(),
 });
 
 export const createCollectionSchema = z.object({
