@@ -122,17 +122,9 @@ struct DocumentListView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Create new note")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: 560)
-        .background(BasemarkTheme.surfaceElevated.opacity(0.98), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(BasemarkTheme.lineSubtle, lineWidth: 1)
-        }
-        .shadow(color: BasemarkTheme.background.opacity(0.5), radius: 14, x: 0, y: 6)
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .padding(.bottom, 6)
     }
 
     // MARK: - Search results
