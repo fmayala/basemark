@@ -6,6 +6,7 @@ struct DocumentListView: View {
     @State private var collections: [Collection] = []
     @State private var path: [String] = []
     @State private var searchQuery = ""
+    @State private var createErrorMessage: String?
 
     private var isSearching: Bool {
         !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -54,7 +55,16 @@ struct DocumentListView: View {
                     SyncStatusView()
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        CollectionListView()
+                            .environment(appState)
+                    } label: {
+                        Image(systemName: "square.stack.3d.up")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(BasemarkTheme.ink)
+                    }
+
                     Menu {
                         Button {
                             Task {
@@ -77,6 +87,9 @@ struct DocumentListView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                bottomBar
+            }
             .task(id: appState.reloadToken) {
                 load()
             }
@@ -84,6 +97,11 @@ struct DocumentListView: View {
                 guard let newID else { return }
                 appState.pendingNewNoteID = nil
                 path = [newID]
+            }
+            .alert("Couldn't create note", isPresented: createErrorAlertBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(createErrorMessage ?? "Try again.")
             }
         }
     }
@@ -96,9 +114,33 @@ struct DocumentListView: View {
                 detail: "\(documents.count) synced"
             )
             .padding(.horizontal, 16)
+        }
+    }
 
+    private var bottomBar: some View {
+        HStack(spacing: 10) {
             BasemarkSearchField(title: "Search notes", text: $searchQuery)
-                .padding(.horizontal, 16)
+
+            Button {
+                createAndOpenNote()
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(BasemarkTheme.background)
+                    .frame(width: 44, height: 44)
+                    .background(BasemarkTheme.ink, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Create new note")
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
+        .background(BasemarkTheme.surface.opacity(0.98))
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(BasemarkTheme.lineSubtle)
+                .frame(height: 1)
         }
     }
 
@@ -195,6 +237,26 @@ struct DocumentListView: View {
     private func load() {
         documents = (try? appState.database.fetchDocuments()) ?? []
         collections = (try? appState.database.fetchCollections()) ?? []
+    }
+
+    private var createErrorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { createErrorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    createErrorMessage = nil
+                }
+            }
+        )
+    }
+
+    private func createAndOpenNote() {
+        do {
+            let localDocumentID = try appState.createLocalDocumentAndSync()
+            appState.pendingNewNoteID = localDocumentID
+        } catch {
+            createErrorMessage = AppState.describe(error: error)
+        }
     }
 
     // MARK: - Flat section header

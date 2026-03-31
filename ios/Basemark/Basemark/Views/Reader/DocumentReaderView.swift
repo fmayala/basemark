@@ -56,7 +56,7 @@ struct DocumentReaderView: View {
                                 .foregroundStyle(BasemarkTheme.ink)
                                 .textFieldStyle(.plain)
                                 .padding(.horizontal, 20)
-                                .padding(.top, 16)
+                                .padding(.top, 4)
 
                             ZStack(alignment: .topLeading) {
                                 if draft.bodyText.isEmpty {
@@ -77,10 +77,12 @@ struct DocumentReaderView: View {
                                 .padding(.horizontal, 20)
                             }
                         }
+                        .padding(.top, 12)
                         .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .topLeading)
                         .padding(.bottom, 40)
                     }
                     .scrollDismissesKeyboard(.interactively)
+                    .safeAreaPadding(.top, 8)
                 }
             }
 
