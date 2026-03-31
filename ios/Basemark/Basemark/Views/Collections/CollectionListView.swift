@@ -45,11 +45,6 @@ struct CollectionListView: View {
             }
             .navigationTitle("Collections")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    SyncStatusView()
-                }
-            }
             .task(id: appState.reloadToken) {
                 load()
             }

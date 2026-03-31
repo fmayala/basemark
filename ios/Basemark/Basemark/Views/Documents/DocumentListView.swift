@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DocumentListView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var documents: [Document] = []
     @State private var collections: [Collection] = []
     @State private var path: [String] = []
@@ -51,10 +52,6 @@ struct DocumentListView: View {
                     .environment(appState)
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    SyncStatusView()
-                }
-
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     NavigationLink {
                         CollectionListView()
@@ -66,15 +63,6 @@ struct DocumentListView: View {
                     }
 
                     Menu {
-                        Button {
-                            Task {
-                                await appState.performSync()
-                                load()
-                            }
-                        } label: {
-                            Label("Sync now", systemImage: "arrow.clockwise")
-                        }
-
                         Button(role: .destructive) {
                             appState.signOut()
                         } label: {
@@ -118,24 +106,27 @@ struct DocumentListView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             BasemarkSearchField(title: "Search notes", text: $searchQuery)
+                .frame(maxWidth: horizontalSizeClass == .regular ? 360 : 240)
 
             Button {
                 createAndOpenNote()
             } label: {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(BasemarkTheme.background)
-                    .frame(width: 44, height: 44)
-                    .background(BasemarkTheme.ink, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(width: 56, height: 56)
+                    .background(BasemarkTheme.ink, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Create new note")
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
         .background(BasemarkTheme.surface.opacity(0.98))
         .overlay(alignment: .top) {
             Rectangle()

@@ -61,11 +61,6 @@ struct SearchView: View {
                 DocumentReaderView(documentID: documentID)
                     .environment(appState)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    SyncStatusView()
-                }
-            }
             .task(id: "\(query)-\(appState.reloadToken)") {
                 let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
