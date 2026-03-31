@@ -108,7 +108,7 @@ struct DocumentListView: View {
     private var bottomBar: some View {
         HStack(spacing: 12) {
             BasemarkSearchField(title: "Search notes", text: $searchQuery)
-                .frame(maxWidth: horizontalSizeClass == .regular ? 360 : 240)
+                .frame(maxWidth: horizontalSizeClass == .regular ? 380 : 260)
 
             Button {
                 createAndOpenNote()
@@ -121,18 +121,18 @@ struct DocumentListView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Create new note")
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-        .background(BasemarkTheme.surface.opacity(0.98))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(BasemarkTheme.lineSubtle)
-                .frame(height: 1)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 560)
+        .background(BasemarkTheme.surfaceElevated.opacity(0.98), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(BasemarkTheme.lineSubtle, lineWidth: 1)
         }
+        .shadow(color: BasemarkTheme.background.opacity(0.5), radius: 14, x: 0, y: 6)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Search results
