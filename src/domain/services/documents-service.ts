@@ -35,6 +35,7 @@ type CreateDocumentsServiceOptions = {
 };
 
 type CreateDocumentInput = {
+  id?: string;
   title?: string;
   content?: string;
   collectionId?: string | null;
@@ -75,7 +76,7 @@ export function createDocumentsService(options: CreateDocumentsServiceOptions) {
     },
 
     async createDocument(input: CreateDocumentInput) {
-      const documentId = generateId();
+      const documentId = input.id ?? generateId();
       const currentTime = now();
       const doc = await repo.createDocumentRecord({
         id: documentId,

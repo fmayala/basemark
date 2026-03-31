@@ -51,8 +51,9 @@ export async function POST(req: NextRequest) {
 
   const [body, validationError] = await validateBody(req, createDocumentSchema);
   if (validationError) return validationError;
-  const { title, content, collectionId, sortOrder, isPublic } = body;
+  const { id, title, content, collectionId, sortOrder, isPublic } = body;
   const doc = await documentsService.createDocument({
+    id,
     title,
     content,
     collectionId,

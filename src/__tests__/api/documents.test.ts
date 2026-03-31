@@ -109,6 +109,21 @@ describe("POST /api/documents", () => {
     expect(data.content).toBe("Hello world");
   });
 
+  it("accepts a client-provided id for local-first note creation", async () => {
+    const req = new NextRequest("http://localhost:3000/api/documents", {
+      method: "POST",
+      body: JSON.stringify({ id: "client-note-123", title: "Local First" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(data.id).toBe("client-note-123");
+    expect(data.title).toBe("Local First");
+  });
+
   it("persists public visibility when provided at create time", async () => {
     const req = new NextRequest("http://localhost:3000/api/documents", {
       method: "POST",

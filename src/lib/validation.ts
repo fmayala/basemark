@@ -6,6 +6,7 @@ export const MAX_DOCUMENT_TITLE_LENGTH = 300;
 export const MAX_COLLECTION_NAME_LENGTH = 120;
 
 export const createDocumentSchema = z.object({
+  id: z.string().min(1).max(128).optional(),
   title: z.string().max(MAX_DOCUMENT_TITLE_LENGTH).optional(),
   content: z.string().max(MAX_DOCUMENT_CONTENT_LENGTH).optional(),
   collectionId: z.string().nullable().optional(),
