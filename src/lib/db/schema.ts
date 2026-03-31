@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   real,
   sqliteTable,
@@ -14,6 +15,9 @@ export const collections = sqliteTable("collections", {
   color: text("color"),
   sortOrder: real("sort_order").notNull().default(0),
   createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at")
     .notNull()
     .default(sql`(unixepoch())`),
 });
@@ -80,3 +84,21 @@ export const apiTokens = sqliteTable("api_tokens", {
   lastUsedAt: integer("last_used_at"),
 });
 
+export const tombstones = sqliteTable(
+  "tombstones",
+  {
+    id: text("id").primaryKey(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    deletedAt: integer("deleted_at")
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => ({
+    deletedAtIdx: index("tombstones_deleted_at_idx").on(table.deletedAt),
+    entityLookupIdx: index("tombstones_entity_type_entity_id_idx").on(
+      table.entityType,
+      table.entityId,
+    ),
+  }),
+);

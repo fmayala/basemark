@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
       color: color ?? null,
       sortOrder: sortOrder ?? 0,
       createdAt: now,
+      updatedAt: now,
     })
     .returning();
 

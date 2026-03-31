@@ -11,6 +11,7 @@ const mockCollection: Collection = {
   color: null,
   sortOrder: 0,
   createdAt: Date.now(),
+  updatedAt: Date.now(),
 };
 
 function mockFetchSuccess(data: unknown) {
@@ -54,6 +55,7 @@ describe("useCollections", () => {
       color: "#ff0000",
       sortOrder: 1,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
 
     global.fetch = vi

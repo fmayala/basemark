@@ -85,6 +85,7 @@ describe("POST /api/collections", () => {
     expect(res.status).toBe(201);
     expect(data.name).toBe("Engineering");
     expect(data.id).toBeDefined();
+    expect(data.updatedAt).toBeTypeOf("number");
   });
 
   it("rejects collection without name (400)", async () => {
@@ -112,6 +113,64 @@ describe("POST /api/collections", () => {
 
     expect(data).toHaveLength(1);
     expect(data[0].name).toBe("Design");
+  });
+
+  it("backfills updatedAt on create and update", async () => {
+    const postReq = new NextRequest("http://localhost:3000/api/collections", {
+      method: "POST",
+      body: JSON.stringify({ name: "Design" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const postRes = await POST(postReq);
+    const created = await postRes.json();
+
+    const putReq = new NextRequest(`http://localhost:3000/api/collections/${created.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name: "Updated Design" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const putRes = await putById(putReq, { params: Promise.resolve({ id: created.id }) });
+    const updated = await putRes.json();
+
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(created.updatedAt);
+  });
+
+  it("writes a collection tombstone and nulls document collection IDs on delete", async () => {
+    const createCollectionReq = new NextRequest("http://localhost:3000/api/collections", {
+      method: "POST",
+      body: JSON.stringify({ name: "Engineering" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const createCollectionRes = await POST(createCollectionReq);
+    const collection = await createCollectionRes.json();
+
+    testDb.sqlite
+      .prepare(
+        `
+          insert into documents (
+            id, title, content, collection_id, is_public, sort_order, created_at, updated_at
+          ) values (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run("doc-1", "Doc", "", collection.id, 0, 0, 100, 100);
+
+    const deleteReq = new NextRequest(`http://localhost:3000/api/collections/${collection.id}`, {
+      method: "DELETE",
+    });
+    const deleteRes = await deleteById(deleteReq, {
+      params: Promise.resolve({ id: collection.id }),
+    });
+
+    const deletedDoc = testDb.sqlite
+      .prepare("select collection_id from documents where id = ?")
+      .get("doc-1") as { collection_id: string | null } | undefined;
+    const tombstoneRows = testDb.sqlite
+      .prepare("select entity_type, entity_id from tombstones where entity_id = ?")
+      .all(collection.id);
+
+    expect(deleteRes.status).toBe(200);
+    expect(deletedDoc?.collection_id).toBeNull();
+    expect(tombstoneRows).toEqual([{ entity_type: "collection", entity_id: collection.id }]);
   });
 });
 

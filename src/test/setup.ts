@@ -15,7 +15,8 @@ export function createTestDb() {
       icon TEXT,
       color TEXT,
       sort_order REAL NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS documents (
@@ -58,6 +59,19 @@ export function createTestDb() {
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       last_used_at INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS tombstones (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      deleted_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS tombstones_deleted_at_idx
+    ON tombstones (deleted_at);
+
+    CREATE INDEX IF NOT EXISTS tombstones_entity_type_entity_id_idx
+    ON tombstones (entity_type, entity_id);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
       doc_id UNINDEXED,

@@ -9,6 +9,7 @@ export interface Collection {
   color: string | null;
   sortOrder: number;
   createdAt: number;
+  updatedAt: number;
 }
 
 export function useCollections() {

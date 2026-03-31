@@ -25,6 +25,9 @@ describe("documents-service", () => {
     syncDocument: ReturnType<typeof vi.fn>;
     removeDocument: ReturnType<typeof vi.fn>;
   };
+  let tombstones: {
+    writeTombstone: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     repo = {
@@ -37,6 +40,9 @@ describe("documents-service", () => {
     searchIndex = {
       syncDocument: vi.fn(),
       removeDocument: vi.fn(),
+    };
+    tombstones = {
+      writeTombstone: vi.fn(),
     };
   });
 
@@ -54,8 +60,9 @@ describe("documents-service", () => {
     repo.createDocumentRecord.mockResolvedValue(doc);
 
     const service = createDocumentsService({
-      repo,
-      searchIndex,
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
       generateId: () => "doc-1",
       now: () => now,
     });
@@ -88,8 +95,9 @@ describe("documents-service", () => {
     repo.getDocumentRecordById.mockResolvedValue(doc);
 
     const service = createDocumentsService({
-      repo,
-      searchIndex,
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
       generateId: () => "unused",
       now: () => now,
     });
@@ -115,8 +123,9 @@ describe("documents-service", () => {
     repo.updateDocumentRecord.mockResolvedValue(updatedDoc);
 
     const service = createDocumentsService({
-      repo,
-      searchIndex,
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
       generateId: () => "unused",
       now: () => now,
     });
@@ -146,8 +155,9 @@ describe("documents-service", () => {
     repo.updateDocumentRecord.mockResolvedValue(updatedDoc);
 
     const service = createDocumentsService({
-      repo,
-      searchIndex,
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
       generateId: () => "unused",
       now: () => now,
     });
@@ -164,13 +174,64 @@ describe("documents-service", () => {
     );
   });
 
+  it("bumps updatedAt for collection and visibility changes", async () => {
+    const updatedDoc: DocRecord = {
+      id: "doc-1",
+      title: "Before",
+      content: "Body",
+      collectionId: "col-2",
+      sortOrder: 5,
+      isPublic: true,
+      createdAt: now - 10,
+      updatedAt: now,
+    };
+    repo.updateDocumentRecord.mockResolvedValue(updatedDoc);
+
+    const service = createDocumentsService({
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
+      generateId: () => "unused",
+      now: () => now,
+    });
+
+    const result = await service.updateDocument("doc-1", {
+      collectionId: "col-2",
+      sortOrder: 5,
+      isPublic: true,
+    });
+
+    expect(result).toEqual(updatedDoc);
+    expect(repo.updateDocumentRecord).toHaveBeenCalledWith(
+      "doc-1",
+      {
+        collectionId: "col-2",
+        sortOrder: 5,
+        isPublic: true,
+        updatedAt: now,
+      },
+      { baseUpdatedAt: undefined },
+    );
+  });
+
   it("deletes source record first then best-effort index removal", async () => {
+    repo.getDocumentRecordById.mockResolvedValue({
+      id: "doc-1",
+      title: "Before",
+      content: "",
+      collectionId: null,
+      sortOrder: 0,
+      isPublic: false,
+      createdAt: now - 10,
+      updatedAt: now - 5,
+    });
     repo.deleteDocumentRecord.mockResolvedValue({ id: "doc-1" });
     searchIndex.removeDocument.mockRejectedValue(new Error("fts unavailable"));
 
     const service = createDocumentsService({
-      repo,
-      searchIndex,
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
       generateId: () => "unused",
       now: () => now,
     });
@@ -178,19 +239,24 @@ describe("documents-service", () => {
     const result = await service.deleteDocument("doc-1");
 
     expect(result).toEqual({ success: true });
+    expect(tombstones.writeTombstone).toHaveBeenCalledWith("document", "doc-1", now);
     expect(repo.deleteDocumentRecord).toHaveBeenCalledWith("doc-1");
     expect(searchIndex.removeDocument).toHaveBeenCalledWith("doc-1");
+    expect(tombstones.writeTombstone.mock.invocationCallOrder[0]).toBeLessThan(
+      repo.deleteDocumentRecord.mock.invocationCallOrder[0],
+    );
     expect(repo.deleteDocumentRecord.mock.invocationCallOrder[0]).toBeLessThan(
       searchIndex.removeDocument.mock.invocationCallOrder[0],
     );
   });
 
   it("returns not_found when source document does not exist", async () => {
-    repo.deleteDocumentRecord.mockResolvedValue(null);
+    repo.getDocumentRecordById.mockResolvedValue(null);
 
     const service = createDocumentsService({
-      repo,
-      searchIndex,
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
       generateId: () => "unused",
       now: () => now,
     });
@@ -198,6 +264,8 @@ describe("documents-service", () => {
     const result = await service.deleteDocument("missing");
 
     expect(result).toEqual({ success: false, reason: "not_found" });
+    expect(tombstones.writeTombstone).not.toHaveBeenCalled();
+    expect(repo.deleteDocumentRecord).not.toHaveBeenCalled();
     expect(searchIndex.removeDocument).not.toHaveBeenCalled();
   });
 });

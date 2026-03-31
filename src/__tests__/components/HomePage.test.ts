@@ -11,6 +11,7 @@ const col = (id: string, name: string): Collection => ({
   color: null,
   sortOrder: 0,
   createdAt: 1000,
+  updatedAt: 1000,
 });
 
 const doc = (id: string, collectionId: string | null, updatedAt: number, title = "Doc"): Document => ({
@@ -18,6 +19,7 @@ const doc = (id: string, collectionId: string | null, updatedAt: number, title =
   title,
   content: "",
   collectionId,
+  isPublic: false,
   sortOrder: 0,
   createdAt: 1000,
   updatedAt,

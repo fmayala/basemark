@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { z } from "zod";
 import { isOwnerEmail } from "@/lib/authz";
-import { createTokensService } from "@/domain/services/tokens-service";
+import {
+  createTokensService,
+  type ValidateBearerResult,
+} from "@/domain/services/tokens-service";
 import { parseBearerToken } from "@/lib/bearer-token";
 
 // Dev bypass: skip auth in development when DEV_BYPASS_AUTH=1
@@ -17,10 +20,17 @@ type RequireAuthOptions = {
 };
 
 async function validateBearerToken(req: NextRequest, requiredScopes: string[]): Promise<BearerValidationResult> {
-  const token = parseBearerToken(req.headers.get("authorization"));
-  if (!token) return "invalid";
-  const result = await tokensService.validateBearer(token, requiredScopes);
+  const result = await authenticateBearer(req, requiredScopes);
   return result.status;
+}
+
+export async function authenticateBearer(
+  req: NextRequest,
+  requiredScopes: string[] = [],
+): Promise<ValidateBearerResult> {
+  const token = parseBearerToken(req.headers.get("authorization"));
+  if (!token) return { status: "invalid" };
+  return tokensService.validateBearer(token, requiredScopes);
 }
 
 export async function isApiAuthenticated(req?: NextRequest): Promise<boolean> {

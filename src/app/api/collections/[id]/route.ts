@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, dbReady } from "@/lib/db";
-import { collections } from "@/lib/db/schema";
+import { collections, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { requireAuth, validateBody } from "@/lib/api-helpers";
 import { updateCollectionSchema } from "@/lib/validation";
+import { writeTombstone } from "@/domain/repos/tombstones-repo";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -44,6 +45,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json(collection);
   }
 
+  updates.updatedAt = Math.floor(Date.now() / 1000);
+
   const [collection] = await db
     .update(collections)
     .set(updates)
@@ -62,13 +65,23 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (authError) return authError;
 
   const { id } = await params;
+  const [existing] = await db.select().from(collections).where(eq(collections.id, id));
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .update(documents)
+    .set({ collectionId: null, updatedAt: now })
+    .where(eq(documents.collectionId, id));
+  await writeTombstone("collection", id, now);
+
   const [collection] = await db
     .delete(collections)
     .where(eq(collections.id, id))
     .returning();
 
-  if (!collection) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!collection) return NextResponse.json({ success: true });
   return NextResponse.json({ success: true });
 }
