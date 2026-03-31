@@ -30,6 +30,7 @@ struct CollectionListView: View {
                                 ForEach(collections) { collection in
                                     NavigationLink {
                                         CollectionDetailView(collection: collection)
+                                            .environment(appState)
                                     } label: {
                                         collectionCard(for: collection)
                                     }

@@ -1,10 +1,11 @@
 import Foundation
 import AuthenticationServices
 import Observation
+import Combine
 
 @MainActor
 @Observable
-final class AppState {
+final class AppState: ObservableObject {
     enum SaveDocumentResult {
         case saved(Document)
         case conflict(Document)
@@ -37,6 +38,7 @@ final class AppState {
     private let apiClient: APIClient
     private let syncEngine: SyncEngine
     private let webAuthenticationPresentationContextProvider = WebAuthenticationPresentationContextProvider()
+    private var pendingRemoteDocumentCreations: Set<String> = []
 
     var isAuthenticated: Bool {
         serverConfig != nil
@@ -147,6 +149,7 @@ final class AppState {
         lastErrorMessage = nil
         lastSyncAt = nil
         pendingNewNoteID = nil
+        pendingRemoteDocumentCreations.removeAll()
         UserDefaults.standard.removeObject(forKey: StorageKey.serverURL)
         try? KeychainHelper.deleteToken(service: KeychainHelper.basemarkService)
         try? database.resetLocalState()
@@ -182,6 +185,36 @@ final class AppState {
         await performSync()
     }
 
+    func createLocalDocumentAndSync(collectionID: String? = nil) throws -> String {
+        guard serverConfig != nil else {
+            throw APIError.unauthorized
+        }
+
+        let documentID = UUID().uuidString.lowercased()
+        let now = Int(Date().timeIntervalSince1970)
+        let localDocument = Document(
+            id: documentID,
+            title: "Untitled",
+            content: TiptapDocumentCodec.documentJSONString(fromPlainText: ""),
+            collectionId: collectionID,
+            isPublic: false,
+            sortOrder: 0,
+            createdAt: now,
+            updatedAt: now
+        )
+
+        try database.upsertDocument(localDocument)
+        pendingRemoteDocumentCreations.insert(documentID)
+        reloadToken += 1
+
+        let draft = DocumentDraft(title: "", bodyText: "", collectionId: collectionID, isPublic: false)
+        Task {
+            await syncLocalCreatedDocument(documentID: documentID, draft: draft)
+        }
+
+        return documentID
+    }
+
     func createDocument(draft: DocumentDraft) async throws -> Document {
         guard let serverConfig else {
             throw APIError.unauthorized
@@ -214,6 +247,7 @@ final class AppState {
                 baseUpdatedAt: baseUpdatedAt
             )
             try database.upsertDocument(document)
+            pendingRemoteDocumentCreations.remove(documentID)
             reloadToken += 1
             return .saved(document)
         } catch APIError.conflict(let document) {
@@ -224,6 +258,49 @@ final class AppState {
             }
 
             throw APIError.conflict(nil)
+        } catch APIError.server(let statusCode, _) where statusCode == 404 {
+            do {
+                // If this note was created locally moments ago, allow the background create task
+                // one chance to finish before we fall back to explicit create.
+                if pendingRemoteDocumentCreations.contains(documentID) {
+                    try await Task.sleep(for: .milliseconds(300))
+
+                    let retriedDocument = try await apiClient.updateDocument(
+                        config: serverConfig,
+                        documentID: documentID,
+                        draft: draft,
+                        baseUpdatedAt: baseUpdatedAt
+                    )
+                    try database.upsertDocument(retriedDocument)
+                    pendingRemoteDocumentCreations.remove(documentID)
+                    reloadToken += 1
+                    return .saved(retriedDocument)
+                }
+            } catch APIError.server(let retryStatus, _) where retryStatus == 404 {
+                // Still not present on server; create below.
+            } catch {
+                if Self.isAuthenticationError(error) {
+                    invalidateSession(message: "Session expired. Sign in again.")
+                }
+                throw error
+            }
+
+            do {
+                let createdDocument = try await apiClient.createDocument(
+                    config: serverConfig,
+                    draft: draft,
+                    preferredID: documentID
+                )
+                try database.upsertDocument(createdDocument)
+                pendingRemoteDocumentCreations.remove(documentID)
+                reloadToken += 1
+                return .saved(createdDocument)
+            } catch {
+                if Self.isAuthenticationError(error) {
+                    invalidateSession(message: "Session expired. Sign in again.")
+                }
+                throw error
+            }
         } catch {
             if Self.isAuthenticationError(error) {
                 invalidateSession(message: "Session expired. Sign in again.")
@@ -238,8 +315,15 @@ final class AppState {
             throw APIError.unauthorized
         }
 
+        let wasPendingRemoteCreate = pendingRemoteDocumentCreations.contains(id)
+        pendingRemoteDocumentCreations.remove(id)
+
         do {
             try await apiClient.deleteDocument(config: serverConfig, documentID: id)
+            try database.deleteDocument(id: id)
+            reloadToken += 1
+        } catch APIError.server(let statusCode, _) where statusCode == 404 && wasPendingRemoteCreate {
+            // Locally-created note was deleted before its remote create completed.
             try database.deleteDocument(id: id)
             reloadToken += 1
         } catch {
@@ -248,6 +332,32 @@ final class AppState {
             }
 
             throw error
+        }
+    }
+
+    private func syncLocalCreatedDocument(documentID: String, draft: DocumentDraft) async {
+        guard pendingRemoteDocumentCreations.contains(documentID) else { return }
+        guard let serverConfig else { return }
+
+        do {
+            let document = try await apiClient.createDocument(
+                config: serverConfig,
+                draft: draft,
+                preferredID: documentID
+            )
+
+            guard pendingRemoteDocumentCreations.contains(documentID) else { return }
+            try database.upsertDocument(document)
+            pendingRemoteDocumentCreations.remove(documentID)
+            reloadToken += 1
+        } catch {
+            // Keep the local note available; save() will retry creation when needed.
+            if Self.isAuthenticationError(error) {
+                invalidateSession(message: "Session expired. Sign in again.")
+                return
+            }
+
+            guard pendingRemoteDocumentCreations.contains(documentID) else { return }
         }
     }
 
@@ -278,6 +388,7 @@ final class AppState {
         lastSyncAt = nil
         lastErrorMessage = message
         pendingNewNoteID = nil
+        pendingRemoteDocumentCreations.removeAll()
         UserDefaults.standard.removeObject(forKey: StorageKey.serverURL)
         try? KeychainHelper.deleteToken(service: KeychainHelper.basemarkService)
         reloadToken += 1

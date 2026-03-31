@@ -59,6 +59,7 @@ struct SearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: String.self) { documentID in
                 DocumentReaderView(documentID: documentID)
+                    .environment(appState)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

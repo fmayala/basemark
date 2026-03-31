@@ -121,6 +121,41 @@ describe("documents-service", () => {
     });
   });
 
+  it("respects client-provided ids for local-first creation", async () => {
+    const doc: DocRecord = {
+      id: "client-note-123",
+      title: "From client",
+      content: "",
+      collectionId: null,
+      sortOrder: 0,
+      isPublic: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    repo.createDocumentRecord.mockResolvedValue(doc);
+
+    const service = createDocumentsService({
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
+      generateId: () => "should-not-be-used",
+      now: () => now,
+    });
+
+    const created = await service.createDocument({ id: "client-note-123", title: "From client" });
+
+    expect(created.id).toBe("client-note-123");
+    expect(repo.createDocumentRecord).toHaveBeenCalledWith({
+      id: "client-note-123",
+      title: "From client",
+      content: "",
+      collectionId: null,
+      isPublic: false,
+      sortOrder: 0,
+      now,
+    });
+  });
+
   it("returns current document when update payload is empty", async () => {
     const doc: DocRecord = {
       id: "doc-1",

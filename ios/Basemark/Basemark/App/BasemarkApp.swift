@@ -9,6 +9,7 @@ struct BasemarkApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
+                .environmentObject(appState)
                 .tint(BasemarkTheme.accent)
                 .preferredColorScheme(.dark)
                 .task {
@@ -42,7 +43,6 @@ private struct RootView: View {
 private struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @State private var selectedTab = 0
-    @State private var isCreatingNote = false
     @State private var createErrorMessage: String?
 
     var body: some View {
@@ -70,20 +70,7 @@ private struct MainTabView: View {
         .onChange(of: selectedTab) { _, newValue in
             guard newValue == 1 else { return }
             selectedTab = 0
-            Task {
-                await createAndOpenNote()
-            }
-        }
-        .overlay {
-            if isCreatingNote {
-                ProgressView("Creating note…")
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(BasemarkTheme.surfaceElevated, in: Capsule())
-                    .overlay {
-                        Capsule().stroke(BasemarkTheme.lineSubtle, lineWidth: 1)
-                    }
-            }
+            createAndOpenNote()
         }
         .alert("Couldn't create note", isPresented: createErrorAlertBinding) {
             Button("OK", role: .cancel) {}
@@ -103,17 +90,10 @@ private struct MainTabView: View {
         )
     }
 
-    private func createAndOpenNote(collectionID: String? = nil) async {
-        guard !isCreatingNote else { return }
-
-        isCreatingNote = true
-        defer { isCreatingNote = false }
-
+    private func createAndOpenNote(collectionID: String? = nil) {
         do {
-            let document = try await appState.createDocument(
-                draft: DocumentDraft(collectionId: collectionID)
-            )
-            appState.pendingNewNoteID = document.id
+            let localDocumentID = try appState.createLocalDocumentAndSync(collectionID: collectionID)
+            appState.pendingNewNoteID = localDocumentID
         } catch {
             createErrorMessage = AppState.describe(error: error)
         }

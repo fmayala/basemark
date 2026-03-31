@@ -10,6 +10,7 @@ actor APIClient {
     }
 
     private struct CreateDocumentPayload: Encodable, Sendable {
+        var id: String?
         var title: String?
         var content: String?
         var collectionId: String?
@@ -82,8 +83,13 @@ actor APIClient {
         }
     }
 
-    func createDocument(config: ServerConfig, draft: DocumentDraft) async throws -> Document {
+    func createDocument(
+        config: ServerConfig,
+        draft: DocumentDraft,
+        preferredID: String? = nil
+    ) async throws -> Document {
         let payload = CreateDocumentPayload(
+            id: preferredID,
             title: draft.normalizedTitle.isEmpty ? nil : draft.normalizedTitle,
             content: draft.encodedContent,
             collectionId: draft.collectionId,

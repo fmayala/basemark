@@ -6,7 +6,6 @@ struct CollectionDetailView: View {
     let collection: Collection
 
     @State private var documents: [Document] = []
-    @State private var isCreatingDocument = false
     @State private var createdDocumentID: String?
     @State private var isNavigatingToCreated = false
     @State private var createErrorMessage: String?
@@ -64,28 +63,21 @@ struct CollectionDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: String.self) { documentID in
             DocumentReaderView(documentID: documentID)
+                .environment(appState)
         }
         .navigationDestination(isPresented: $isNavigatingToCreated) {
             if let createdDocumentID {
                 DocumentReaderView(documentID: createdDocumentID)
+                    .environment(appState)
             }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Group {
-                    if isCreatingDocument {
-                        ProgressView()
-                            .tint(BasemarkTheme.ink)
-                    } else {
-                        Button {
-                            Task {
-                                await createAndOpenNote()
-                            }
-                        } label: {
-                            Image(systemName: "plus")
-                                .foregroundStyle(BasemarkTheme.ink)
-                        }
-                    }
+                Button {
+                    createAndOpenNote()
+                } label: {
+                    Image(systemName: "plus")
+                        .foregroundStyle(BasemarkTheme.ink)
                 }
             }
         }
@@ -110,17 +102,10 @@ struct CollectionDetailView: View {
         )
     }
 
-    private func createAndOpenNote() async {
-        guard !isCreatingDocument else { return }
-
-        isCreatingDocument = true
-        defer { isCreatingDocument = false }
-
+    private func createAndOpenNote() {
         do {
-            let document = try await appState.createDocument(
-                draft: DocumentDraft(collectionId: collection.id)
-            )
-            createdDocumentID = document.id
+            let localDocumentID = try appState.createLocalDocumentAndSync(collectionID: collection.id)
+            createdDocumentID = localDocumentID
             isNavigatingToCreated = true
         } catch {
             createErrorMessage = AppState.describe(error: error)
