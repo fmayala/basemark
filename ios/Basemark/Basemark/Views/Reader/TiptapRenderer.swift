@@ -4,7 +4,7 @@ struct TiptapRenderer: View {
     let content: String
 
     var body: some View {
-        if let node = decodeNode() {
+        if let node = TiptapDocumentCodec.decodeNode(from: content) {
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(Array((node.content ?? [node]).enumerated()), id: \.offset) { _, child in
                     TiptapNodeView(node: child)
@@ -17,10 +17,6 @@ struct TiptapRenderer: View {
         }
     }
 
-    private func decodeNode() -> TiptapNode? {
-        guard let data = content.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(TiptapNode.self, from: data)
-    }
 }
 
 private struct TiptapNodeView: View {
@@ -46,8 +42,7 @@ private struct TiptapNodeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array((node.content ?? []).enumerated()), id: \.offset) { index, child in
                     HStack(alignment: .top, spacing: 8) {
-                        Text(marker(for: node.type, index: index, child: child))
-                            .foregroundStyle(.secondary)
+                        markerView(for: node.type, index: index, child: child)
                         TiptapNodeView(node: child)
                     }
                 }
@@ -77,7 +72,11 @@ private struct TiptapNodeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
             }
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(BasemarkTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(BasemarkTheme.lineSubtle, lineWidth: 1)
+            }
         case "horizontalRule":
             Divider()
         case "image":
@@ -100,7 +99,11 @@ private struct TiptapNodeView: View {
                 }
             }
             .padding(12)
-            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            .background(BasemarkTheme.accentSoft, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(BasemarkTheme.accent.opacity(0.18), lineWidth: 1)
+            }
         case "table":
             VStack(spacing: 8) {
                 ForEach(Array((node.content ?? []).enumerated()), id: \.offset) { _, row in
@@ -113,7 +116,11 @@ private struct TiptapNodeView: View {
                             }
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                            .background(BasemarkTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(BasemarkTheme.lineSubtle, lineWidth: 1)
+                            }
                         }
                     }
                 }
@@ -158,7 +165,7 @@ private struct TiptapNodeView: View {
             case "strike":
                 return partial.strikethrough()
             case "link":
-                return partial.foregroundColor(.blue).underline()
+                return partial.foregroundColor(BasemarkTheme.accent).underline()
             default:
                 return partial
             }
@@ -178,17 +185,23 @@ private struct TiptapNodeView: View {
         }
     }
 
-    private func marker(for type: String, index: Int, child: TiptapNode) -> String {
+    @ViewBuilder
+    private func markerView(for type: String, index: Int, child: TiptapNode) -> some View {
         if type == "taskList" || child.type == "taskItem" {
             let checked = child.attrs?["checked"]?.stringValue == "true"
-            return checked ? "checkmark.square.fill" : "square"
+            Image(systemName: checked ? "checkmark.square.fill" : "square")
+                .foregroundStyle(checked ? BasemarkTheme.accent : BasemarkTheme.ghost)
+                .frame(width: 18, alignment: .leading)
+        } else if type == "orderedList" {
+            Text("\(index + 1).")
+                .foregroundStyle(BasemarkTheme.ghost)
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .frame(width: 24, alignment: .leading)
+        } else {
+            Text("•")
+                .foregroundStyle(BasemarkTheme.ghost)
+                .frame(width: 18, alignment: .leading)
         }
-
-        if type == "orderedList" {
-            return "\(index + 1)."
-        }
-
-        return "•"
     }
 
     private func plainText(for node: TiptapNode) -> String {

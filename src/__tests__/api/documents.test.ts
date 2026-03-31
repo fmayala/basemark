@@ -109,6 +109,21 @@ describe("POST /api/documents", () => {
     expect(data.content).toBe("Hello world");
   });
 
+  it("persists public visibility when provided at create time", async () => {
+    const req = new NextRequest("http://localhost:3000/api/documents", {
+      method: "POST",
+      body: JSON.stringify({ title: "Public Doc", isPublic: true }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(data.title).toBe("Public Doc");
+    expect(data.isPublic).toBe(true);
+  });
+
   it("persists document so GET returns it", async () => {
     // Create a document
     const postReq = new NextRequest("http://localhost:3000/api/documents", {

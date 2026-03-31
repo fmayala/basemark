@@ -75,10 +75,50 @@ describe("documents-service", () => {
       title: "Untitled",
       content: "",
       collectionId: null,
+      isPublic: false,
       sortOrder: 0,
       now,
     });
     expect(searchIndex.syncDocument).toHaveBeenCalledWith("doc-1");
+  });
+
+  it("persists visibility when creating a public document", async () => {
+    const doc: DocRecord = {
+      id: "doc-2",
+      title: "Shared",
+      content: "Body",
+      collectionId: null,
+      sortOrder: 0,
+      isPublic: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    repo.createDocumentRecord.mockResolvedValue(doc);
+
+    const service = createDocumentsService({
+      repo: repo as any,
+      searchIndex: searchIndex as any,
+      tombstones: tombstones as any,
+      generateId: () => "doc-2",
+      now: () => now,
+    });
+
+    const created = await service.createDocument({
+      title: "Shared",
+      content: "Body",
+      isPublic: true,
+    });
+
+    expect(created).toEqual(doc);
+    expect(repo.createDocumentRecord).toHaveBeenCalledWith({
+      id: "doc-2",
+      title: "Shared",
+      content: "Body",
+      collectionId: null,
+      isPublic: true,
+      sortOrder: 0,
+      now,
+    });
   });
 
   it("returns current document when update payload is empty", async () => {

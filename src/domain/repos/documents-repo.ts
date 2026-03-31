@@ -7,6 +7,7 @@ export type CreateDocumentRecordInput = {
   title: string;
   content: string;
   collectionId?: string | null;
+  isPublic?: boolean;
   sortOrder: number;
   now: number;
 };
@@ -56,6 +57,7 @@ export async function createDocumentRecord(input: CreateDocumentRecordInput) {
       title: input.title,
       content: input.content,
       collectionId: input.collectionId ?? null,
+      isPublic: input.isPublic ?? false,
       sortOrder: input.sortOrder,
       createdAt: input.now,
       updatedAt: input.now,

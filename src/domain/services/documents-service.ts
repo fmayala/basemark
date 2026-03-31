@@ -39,6 +39,7 @@ type CreateDocumentInput = {
   content?: string;
   collectionId?: string | null;
   sortOrder?: number;
+  isPublic?: boolean;
 };
 
 type UpdateDocumentInput = {
@@ -81,6 +82,7 @@ export function createDocumentsService(options: CreateDocumentsServiceOptions) {
         title: input.title ?? "Untitled",
         content: input.content ?? "",
         collectionId: input.collectionId ?? null,
+        isPublic: input.isPublic ?? false,
         sortOrder: input.sortOrder ?? 0,
         now: currentTime,
       });

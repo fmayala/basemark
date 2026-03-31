@@ -7,28 +7,25 @@ struct SyncStatusView: View {
         switch appState.syncState {
         case .idle:
             if let lastSyncAt = appState.lastSyncAt {
-                Label(
+                BasemarkPill(
                     lastSyncAt.formatted(date: .omitted, time: .shortened),
-                    systemImage: "arrow.trianglehead.clockwise"
+                    systemImage: "arrow.trianglehead.clockwise",
+                    tone: .neutral
                 )
-                .font(.caption)
-                .foregroundStyle(.secondary)
             } else {
-                Label("Offline", systemImage: "internaldrive")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                BasemarkPill("Cached", systemImage: "internaldrive", tone: .neutral)
             }
         case .syncing:
             HStack(spacing: 8) {
                 ProgressView()
+                    .tint(BasemarkTheme.accent)
                 Text("Syncing")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(BasemarkTheme.faint)
             }
-            .font(.caption)
         case let .failed(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .lineLimit(1)
+            BasemarkPill("Sync failed", systemImage: "exclamationmark.triangle.fill", tone: .warning)
+                .accessibilityHint(message)
         }
     }
 }

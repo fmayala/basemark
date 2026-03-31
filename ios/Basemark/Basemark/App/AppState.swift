@@ -1,9 +1,15 @@
 import Foundation
+import AuthenticationServices
 import Observation
 
 @MainActor
 @Observable
 final class AppState {
+    enum SaveDocumentResult {
+        case saved(Document)
+        case conflict(Document)
+    }
+
     enum SyncState: Equatable {
         case idle
         case syncing
@@ -14,6 +20,9 @@ final class AppState {
         static let serverURL = "Basemark.serverURL"
     }
 
+    /// The default Basemark server. Users no longer enter this manually.
+    private static let defaultServerURL = URL(string: "https://basemark.wiki")!
+
     let database: AppDatabase
 
     var serverConfig: ServerConfig?
@@ -22,9 +31,12 @@ final class AppState {
     var lastSyncAt: Date?
     var lastErrorMessage: String?
     var reloadToken = 0
+    /// Set by the tab bar's "New" button; DocumentListView observes and navigates.
+    var pendingNewNoteID: String?
 
     private let apiClient: APIClient
     private let syncEngine: SyncEngine
+    private let webAuthenticationPresentationContextProvider = WebAuthenticationPresentationContextProvider()
 
     var isAuthenticated: Bool {
         serverConfig != nil
@@ -61,11 +73,80 @@ final class AppState {
         }
     }
 
+    /// Authenticates via Google OAuth through the web app's auth flow.
+    /// Opens a web-based sign-in session, then exchanges the resulting session for an API token.
+    func signInWithGoogle() async {
+        isAuthenticating = true
+        lastErrorMessage = nil
+        defer { isAuthenticating = false }
+
+        let serverURL = Self.defaultServerURL
+        let callbackScheme = "basemark"
+        let authURL = serverURL.appendingPathComponent("/api/auth/mobile/google")
+        var components = URLComponents(url: authURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "callback", value: "\(callbackScheme)://auth")]
+
+        guard let url = components.url else {
+            lastErrorMessage = "Could not build the sign-in URL."
+            return
+        }
+
+        do {
+            let callbackURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { url, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let url {
+                        continuation.resume(returning: url)
+                    } else {
+                        continuation.resume(throwing: APIError.invalidResponse)
+                    }
+                }
+                session.prefersEphemeralWebBrowserSession = false
+                session.presentationContextProvider = self.webAuthenticationPresentationContextProvider
+                if !session.start() {
+                    continuation.resume(throwing: APIError.invalidResponse)
+                }
+            }
+
+            // Parse the token from the callback URL: basemark://auth?token=...
+            guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+                lastErrorMessage = "Sign-in returned an invalid callback URL."
+                return
+            }
+
+            if let errorCode = components.queryItems?.first(where: { $0.name == "error" })?.value {
+                lastErrorMessage = Self.mobileAuthErrorMessage(for: errorCode)
+                return
+            }
+
+            guard let token = components.queryItems?.first(where: { $0.name == "token" })?.value, !token.isEmpty else {
+                lastErrorMessage = "Sign-in succeeded but no token was returned."
+                return
+            }
+
+            let config = ServerConfig(serverURL: serverURL, token: token)
+            _ = try await apiClient.introspect(config: config)
+
+            try KeychainHelper.saveToken(token, service: KeychainHelper.basemarkService)
+            UserDefaults.standard.set(serverURL.absoluteString, forKey: StorageKey.serverURL)
+
+            serverConfig = config
+            reloadToken += 1
+            await performSync()
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            // User cancelled — not an error
+        } catch {
+            lastErrorMessage = AppState.describe(error: error)
+        }
+    }
+
     func signOut() {
         serverConfig = nil
         syncState = .idle
         lastErrorMessage = nil
         lastSyncAt = nil
+        pendingNewNoteID = nil
         UserDefaults.standard.removeObject(forKey: StorageKey.serverURL)
         try? KeychainHelper.deleteToken(service: KeychainHelper.basemarkService)
         try? database.resetLocalState()
@@ -85,6 +166,11 @@ final class AppState {
             syncState = .idle
             reloadToken += 1
         } catch {
+            if Self.isAuthenticationError(error) {
+                invalidateSession(message: "Session expired. Sign in again.")
+                return
+            }
+
             let message = AppState.describe(error: error)
             syncState = .failed(message)
             lastErrorMessage = message
@@ -94,6 +180,75 @@ final class AppState {
     func refreshIfPossible() async {
         guard isAuthenticated else { return }
         await performSync()
+    }
+
+    func createDocument(draft: DocumentDraft) async throws -> Document {
+        guard let serverConfig else {
+            throw APIError.unauthorized
+        }
+
+        do {
+            let document = try await apiClient.createDocument(config: serverConfig, draft: draft)
+            try database.upsertDocument(document)
+            reloadToken += 1
+            return document
+        } catch {
+            if Self.isAuthenticationError(error) {
+                invalidateSession(message: "Session expired. Sign in again.")
+            }
+
+            throw error
+        }
+    }
+
+    func saveDocument(documentID: String, draft: DocumentDraft, baseUpdatedAt: Int) async throws -> SaveDocumentResult {
+        guard let serverConfig else {
+            throw APIError.unauthorized
+        }
+
+        do {
+            let document = try await apiClient.updateDocument(
+                config: serverConfig,
+                documentID: documentID,
+                draft: draft,
+                baseUpdatedAt: baseUpdatedAt
+            )
+            try database.upsertDocument(document)
+            reloadToken += 1
+            return .saved(document)
+        } catch APIError.conflict(let document) {
+            if let document {
+                try? database.upsertDocument(document)
+                reloadToken += 1
+                return .conflict(document)
+            }
+
+            throw APIError.conflict(nil)
+        } catch {
+            if Self.isAuthenticationError(error) {
+                invalidateSession(message: "Session expired. Sign in again.")
+            }
+
+            throw error
+        }
+    }
+
+    func deleteDocument(id: String) async throws {
+        guard let serverConfig else {
+            throw APIError.unauthorized
+        }
+
+        do {
+            try await apiClient.deleteDocument(config: serverConfig, documentID: id)
+            try database.deleteDocument(id: id)
+            reloadToken += 1
+        } catch {
+            if Self.isAuthenticationError(error) {
+                invalidateSession(message: "Session expired. Sign in again.")
+            }
+
+            throw error
+        }
     }
 
     private func restorePersistedSession() {
@@ -115,5 +270,42 @@ final class AppState {
         }
 
         return error.localizedDescription
+    }
+
+    private func invalidateSession(message: String) {
+        serverConfig = nil
+        syncState = .idle
+        lastSyncAt = nil
+        lastErrorMessage = message
+        pendingNewNoteID = nil
+        UserDefaults.standard.removeObject(forKey: StorageKey.serverURL)
+        try? KeychainHelper.deleteToken(service: KeychainHelper.basemarkService)
+        reloadToken += 1
+    }
+
+    private static func isAuthenticationError(_ error: Error) -> Bool {
+        guard let apiError = error as? APIError else {
+            return false
+        }
+
+        switch apiError {
+        case .unauthorized, .forbidden:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func mobileAuthErrorMessage(for code: String) -> String {
+        switch code {
+        case "forbidden":
+            return "Only the workspace owner can sign in."
+        case "unauthorized":
+            return "Google sign-in did not complete."
+        case "server_error":
+            return "Basemark could not create a mobile session token."
+        default:
+            return "Google sign-in failed."
+        }
     }
 }

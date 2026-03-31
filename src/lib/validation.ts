@@ -10,6 +10,7 @@ export const createDocumentSchema = z.object({
   content: z.string().max(MAX_DOCUMENT_CONTENT_LENGTH).optional(),
   collectionId: z.string().nullable().optional(),
   sortOrder: z.number().optional(),
+  isPublic: z.boolean().optional(),
 });
 
 export const updateDocumentSchema = z.object({

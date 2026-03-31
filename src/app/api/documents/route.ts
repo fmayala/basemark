@@ -51,12 +51,13 @@ export async function POST(req: NextRequest) {
 
   const [body, validationError] = await validateBody(req, createDocumentSchema);
   if (validationError) return validationError;
-  const { title, content, collectionId, sortOrder } = body;
+  const { title, content, collectionId, sortOrder, isPublic } = body;
   const doc = await documentsService.createDocument({
     title,
     content,
     collectionId,
     sortOrder,
+    isPublic,
   });
 
   return NextResponse.json(doc, { status: 201 });

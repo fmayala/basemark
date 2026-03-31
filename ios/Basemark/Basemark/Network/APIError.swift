@@ -5,6 +5,7 @@ enum APIError: LocalizedError, Sendable {
     case invalidResponse
     case unauthorized
     case forbidden
+    case conflict(Document?)
     case server(statusCode: Int, message: String?)
     case decoding(Error)
     case transport(Error)
@@ -19,6 +20,8 @@ enum APIError: LocalizedError, Sendable {
             return "The API token was rejected."
         case .forbidden:
             return "The API token is missing the required scope."
+        case .conflict:
+            return "This document changed on the server. Review the latest version or save again to overwrite it."
         case let .server(statusCode, message):
             return message?.isEmpty == false ? message : "The server returned HTTP \(statusCode)."
         case let .decoding(error):

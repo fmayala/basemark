@@ -51,6 +51,12 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func documentCount() throws -> Int {
+        try dbPool.read { db in
+            try Document.fetchCount(db)
+        }
+    }
+
     func fetchCollections() throws -> [Collection] {
         try dbPool.read { db in
             try Collection
@@ -135,40 +141,7 @@ final class AppDatabase: @unchecked Sendable {
             }
 
             for document in response.documents {
-                try db.execute(
-                    sql: """
-                        INSERT INTO documents (
-                            id, title, content, collectionId, isPublic, sortOrder, createdAt, updatedAt
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO UPDATE SET
-                            title = excluded.title,
-                            content = excluded.content,
-                            collectionId = excluded.collectionId,
-                            isPublic = excluded.isPublic,
-                            sortOrder = excluded.sortOrder,
-                            createdAt = excluded.createdAt,
-                            updatedAt = excluded.updatedAt
-                        """,
-                    arguments: [
-                        document.id,
-                        document.title,
-                        document.content,
-                        document.collectionId,
-                        document.isPublic,
-                        document.sortOrder,
-                        document.createdAt,
-                        document.updatedAt,
-                    ]
-                )
-
-                try db.execute(
-                    sql: "DELETE FROM documents_fts WHERE doc_id = ?",
-                    arguments: [document.id]
-                )
-                try db.execute(
-                    sql: "INSERT INTO documents_fts (doc_id, title, body) VALUES (?, ?, ?)",
-                    arguments: [document.id, document.title, Self.searchableText(from: document.content)]
-                )
+                try Self.upsert(document: document, in: db)
             }
 
             for deletion in response.deletions {
@@ -199,6 +172,19 @@ final class AppDatabase: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM documents")
             try db.execute(sql: "DELETE FROM collections")
             try db.execute(sql: "DELETE FROM sync_cursors")
+        }
+    }
+
+    func upsertDocument(_ document: Document) throws {
+        try dbPool.write { db in
+            try Self.upsert(document: document, in: db)
+        }
+    }
+
+    func deleteDocument(id: String) throws {
+        try dbPool.write { db in
+            try db.execute(sql: "DELETE FROM documents_fts WHERE doc_id = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM documents WHERE id = ?", arguments: [id])
         }
     }
 
@@ -276,5 +262,39 @@ final class AppDatabase: @unchecked Sendable {
 
         walk(object)
         return pieces.joined(separator: " ")
+    }
+
+    private static func upsert(document: Document, in db: Database) throws {
+        try db.execute(
+            sql: """
+                INSERT INTO documents (
+                    id, title, content, collectionId, isPublic, sortOrder, createdAt, updatedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    content = excluded.content,
+                    collectionId = excluded.collectionId,
+                    isPublic = excluded.isPublic,
+                    sortOrder = excluded.sortOrder,
+                    createdAt = excluded.createdAt,
+                    updatedAt = excluded.updatedAt
+                """,
+            arguments: [
+                document.id,
+                document.title,
+                document.content,
+                document.collectionId,
+                document.isPublic,
+                document.sortOrder,
+                document.createdAt,
+                document.updatedAt,
+            ]
+        )
+
+        try db.execute(sql: "DELETE FROM documents_fts WHERE doc_id = ?", arguments: [document.id])
+        try db.execute(
+            sql: "INSERT INTO documents_fts (doc_id, title, body) VALUES (?, ?, ?)",
+            arguments: [document.id, document.title, searchableText(from: document.content)]
+        )
     }
 }

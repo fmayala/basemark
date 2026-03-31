@@ -13,3 +13,21 @@ struct Document: Codable, FetchableRecord, PersistableRecord, TableRecord, Ident
     var createdAt: Int
     var updatedAt: Int
 }
+
+extension Document {
+    var displayTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled" : title
+    }
+
+    var bodyPreview: String {
+        let preview = TiptapDocumentCodec.readableText(from: content)
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if preview.count > 180 {
+            return String(preview.prefix(177)) + "..."
+        }
+
+        return preview
+    }
+}

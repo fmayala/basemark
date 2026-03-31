@@ -9,8 +9,29 @@ actor APIClient {
         var createdAt: Int
     }
 
+    private struct CreateDocumentPayload: Encodable, Sendable {
+        var title: String?
+        var content: String?
+        var collectionId: String?
+        var isPublic: Bool
+    }
+
+    private struct UpdateDocumentPayload: Encodable, Sendable {
+        var title: String?
+        var content: String?
+        var collectionId: String?
+        var isPublic: Bool
+        var baseUpdatedAt: Int
+    }
+
+    private struct ConflictEnvelope: Decodable, Sendable {
+        var error: String
+        var document: Document?
+    }
+
     private let session: URLSession
     private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -61,12 +82,89 @@ actor APIClient {
         }
     }
 
-    private func makeRequest(url: URL, token: String) -> URLRequest {
+    func createDocument(config: ServerConfig, draft: DocumentDraft) async throws -> Document {
+        let payload = CreateDocumentPayload(
+            title: draft.normalizedTitle.isEmpty ? nil : draft.normalizedTitle,
+            content: draft.encodedContent,
+            collectionId: draft.collectionId,
+            isPublic: draft.isPublic
+        )
+        let request = try makeJSONRequest(
+            url: config.endpoint("/api/documents"),
+            method: "POST",
+            token: config.token,
+            body: payload
+        )
+        let (data, _) = try await perform(request)
+
+        do {
+            return try decoder.decode(Document.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    func updateDocument(
+        config: ServerConfig,
+        documentID: String,
+        draft: DocumentDraft,
+        baseUpdatedAt: Int
+    ) async throws -> Document {
+        let payload = UpdateDocumentPayload(
+            title: draft.normalizedTitle.isEmpty ? nil : draft.normalizedTitle,
+            content: draft.encodedContent,
+            collectionId: draft.collectionId,
+            isPublic: draft.isPublic,
+            baseUpdatedAt: baseUpdatedAt
+        )
+        let request = try makeJSONRequest(
+            url: config.endpoint("/api/documents/\(documentID)"),
+            method: "PUT",
+            token: config.token,
+            body: payload
+        )
+        let (data, _) = try await perform(request)
+
+        do {
+            return try decoder.decode(Document.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    func deleteDocument(config: ServerConfig, documentID: String) async throws {
+        let request = makeRequest(
+            url: config.endpoint("/api/documents/\(documentID)"),
+            method: "DELETE",
+            token: config.token
+        )
+        _ = try await perform(request)
+    }
+
+    private func makeRequest(url: URL, method: String = "GET", token: String) -> URLRequest {
         var request = URLRequest(url: url)
+        request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 30
         return request
+    }
+
+    private func makeJSONRequest<Body: Encodable>(
+        url: URL,
+        method: String,
+        token: String,
+        body: Body
+    ) throws -> URLRequest {
+        var request = makeRequest(url: url, method: method, token: token)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            request.httpBody = try encoder.encode(body)
+            return request
+        } catch {
+            throw APIError.transport(error)
+        }
     }
 
     private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -89,6 +187,9 @@ actor APIClient {
             throw APIError.unauthorized
         case 403:
             throw APIError.forbidden
+        case 409:
+            let envelope = try? decoder.decode(ConflictEnvelope.self, from: result.0)
+            throw APIError.conflict(envelope?.document)
         default:
             let message = String(data: result.0, encoding: .utf8)
             throw APIError.server(statusCode: response.statusCode, message: message)
